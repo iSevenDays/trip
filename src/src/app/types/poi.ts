@@ -6,6 +6,11 @@ export interface Category {
   color?: string;
 }
 
+export interface PlaceImage {
+  id: number;
+  url: string;
+}
+
 export interface Place {
   id: number;
   name: string;
@@ -19,6 +24,7 @@ export interface Place {
   gpx?: string;
   image?: string;
   image_id?: number;
+  images?: PlaceImage[];
   price?: number;
   description?: string;
   duration?: number;

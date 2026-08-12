@@ -975,6 +975,11 @@ export class TripComponent implements AfterViewInit, OnDestroy {
             command: () => this.tripDayToNavigation(d.id),
           },
           {
+            label: this.translocoService.translate('routing.optimize'),
+            icon: 'pi pi-bolt',
+            command: () => this.dayOptimize(d),
+          },
+          {
             label: this.translocoService.translate('common.actions.edit'),
             icon: 'pi pi-pencil',
             disabled: this.trip()!.archived,
@@ -1090,6 +1095,11 @@ export class TripComponent implements AfterViewInit, OnDestroy {
             label: this.translocoService.translate('view.open_navigation'),
             icon: 'pi pi-directions',
             command: () => this.tripDayToNavigation(d.id),
+          },
+          {
+            label: this.translocoService.translate('routing.optimize'),
+            icon: 'pi pi-bolt',
+            command: () => this.dayOptimize(d),
           },
           {
             label: this.translocoService.translate('common.actions.highlight'),
@@ -2616,13 +2626,35 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     openNavigation([{ lat: target.lat, lng: target.lng }]);
   }
 
-  tripDayToNavigation(dayId: number) {
-    const idx = this.trip()?.days.findIndex((d) => d.id === dayId);
-    if (!this.trip() || idx === undefined || idx == -1) return;
-    const data = [...this.trip()!.days[idx].items].sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''));
-    const items = data.filter((item) => item.lat && item.lng);
-    if (!items.length) return;
-    openNavigation(items.map((item) => ({ lat: item.lat!, lng: item.lng! })));
+  tripDayToNavigation(dayId: number, order?: number[]) {
+    const trip = this.trip();
+    if (!trip) return;
+    this.utilsService.setLoading(this.translocoService.translate('routing.calculating'));
+    this.apiService
+      .getDayDirections(trip.id, dayId, order)
+      .pipe(take(1))
+      .subscribe({
+        next: (resp) => {
+          this.utilsService.setLoading('');
+          if (resp.stop_count < 2) {
+            this.utilsService.toast(
+              'warn',
+              this.translocoService.translate('routing.not_enough_values'),
+              this.translocoService.translate('routing.not_enough_values_desc'),
+            );
+            return;
+          }
+          window.open(resp.google_maps_url, '_blank');
+        },
+        error: () => {
+          this.utilsService.setLoading('');
+          this.utilsService.toast(
+            'error',
+            this.translocoService.translate('routing.error'),
+            this.translocoService.translate('routing.failed'),
+          );
+        },
+      });
   }
 
   tripToNavigation() {
@@ -2631,6 +2663,55 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       .filter((item) => item.lat && item.lng);
     if (!items.length) return;
     openNavigation(items.map((item) => ({ lat: item.lat!, lng: item.lng! })));
+  }
+
+  dayOptimize(day: TripDay) {
+    const trip = this.trip();
+    if (!trip) return;
+
+    // Mirror dayRouting's stop guard: need at least two routable stops.
+    const stopCount = day.items.filter((item) => {
+      const lat = item.lat || item.place?.lat;
+      const lng = item.lng || item.place?.lng;
+      return lat && lng;
+    }).length;
+    if (stopCount < 2) {
+      this.utilsService.toast(
+        'warn',
+        this.translocoService.translate('routing.not_enough_values'),
+        this.translocoService.translate('routing.not_enough_values_desc'),
+      );
+      return;
+    }
+
+    this.utilsService.setLoading(this.translocoService.translate('routing.optimizing'));
+    this.apiService
+      .optimizeDay(trip.id, day.id)
+      .pipe(take(1))
+      .subscribe({
+        next: (resp) => {
+          this.utilsService.setLoading('');
+          this.utilsService.toast(
+            'success',
+            this.translocoService.translate('routing.optimize'),
+            this.translocoService.translate('routing.optimized_desc', {
+              original: resp.original_distance_km.toFixed(1),
+              optimized: resp.optimized_distance_km.toFixed(1),
+              savings: resp.savings_km.toFixed(1),
+            }),
+          );
+          // Open Google Maps with the optimized stop order.
+          this.tripDayToNavigation(day.id, resp.optimized_order.map((p) => p.id));
+        },
+        error: () => {
+          this.utilsService.setLoading('');
+          this.utilsService.toast(
+            'error',
+            this.translocoService.translate('routing.error'),
+            this.translocoService.translate('routing.failed'),
+          );
+        },
+      });
   }
 
   getSharedTripDetails() {

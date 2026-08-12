@@ -4,11 +4,12 @@ import { Place } from '../../types/poi';
 import { ButtonModule } from 'primeng/button';
 import { ApiService } from '../../services/api.service';
 import { map } from 'rxjs';
+import { ItemGalleryComponent } from '../item-gallery/item-gallery.component';
 
 @Component({
   selector: 'app-place-list-item',
   standalone: true,
-  imports: [ButtonModule],
+  imports: [ButtonModule, ItemGalleryComponent],
   templateUrl: './place-list-item.component.html',
   styleUrls: ['./place-list-item.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,

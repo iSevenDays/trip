@@ -16,6 +16,12 @@ from .date import dt_utc
 
 logger = logging.getLogger(__name__)
 
+# Guard against decompression-bomb images across every endpoint that decodes
+# images (places gallery, trip items, category, trip cover). PIL raises
+# DecompressionBombError for images above this many pixels; the callers catch
+# it as a normal save failure and reject the request with 4xx.
+Image.MAX_IMAGE_PIXELS = 50_000_000
+
 
 def generate_urlsafe() -> str:
     return token_urlsafe(32)

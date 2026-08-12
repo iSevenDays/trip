@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     ASSETS_URL: str = "/api/assets"
     PLACE_IMAGE_SIZE: int = 500
     TRIP_IMAGE_SIZE: int = 600
+    IMAGE_MAX_COUNT: int = 10
+    IMAGE_MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB per image (base64 payload)
     ATTACHMENTS_FOLDER: str = "storage/attachments"
     ATTACHMENT_MAX_SIZE: int = 10 * 1024 * 1024  # 10MB
     BACKUPS_FOLDER: str = "storage/backups"

@@ -25,6 +25,18 @@ import { PlaceCreateProviderModalComponent } from '../place-create-provider-moda
 import { DialogModule } from 'primeng/dialog';
 import { TranslocoDirective } from '@jsverse/transloco';
 
+/** One gallery slot while editing: an existing image (`id`), a freshly uploaded one (`data`), or a fetched URL (`url`). */
+interface EditImage {
+  id?: number;
+  data?: string;
+  url: string;
+}
+
+// Client-side guards mirror the backend defaults (IMAGE_MAX_COUNT, IMAGE_MAX_UPLOAD_SIZE).
+// The backend remains authoritative (400/413); these just avoid needless reads and uploads.
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGES = 10;
+
 @Component({
   selector: 'app-place-create-modal',
   imports: [
@@ -60,8 +72,8 @@ export class PlaceCreateModalComponent {
 
   placeForm: FormGroup;
   categories$?: Observable<Category[]>;
-  previous_image_id: number | null = null;
-  previous_image: string | null = null;
+  images = signal<EditImage[]>([]);
+  coverIndex = signal(0);
   showImageUrlDialog = false;
   imageUrl = '';
   private apiService = inject(ApiService);
@@ -104,14 +116,21 @@ export class PlaceCreateModalComponent {
       allowdog: false,
       restroom: false,
       visited: false,
-      image: null,
-      image_id: null,
       gpx: null,
       links: [[]],
     });
 
     const patchValue = this.config.data?.place as Place | undefined;
-    if (patchValue) this.placeForm.patchValue({ ...patchValue, links: patchValue.links ?? [] });
+    if (patchValue) {
+      this.placeForm.patchValue({ ...patchValue, links: patchValue.links ?? [] });
+
+      const existing = patchValue.images ?? [];
+      if (existing.length) {
+        this.images.set(existing.map((img) => ({ id: img.id, url: img.url })));
+        const coverPos = existing.findIndex((img) => img.id === patchValue.image_id);
+        this.coverIndex.set(coverPos >= 0 ? coverPos : 0);
+      }
+    }
     this.placeForm
       .get('place')
       ?.valueChanges.pipe(takeUntilDestroyed())
@@ -150,12 +169,10 @@ export class PlaceCreateModalComponent {
     let ret = this.placeForm.value;
     ret['category_id'] = ret['category'];
     delete ret['category'];
-    if (ret['image_id']) {
-      delete ret['image'];
-      delete ret['image_id'];
-    } else {
-      delete ret['image_id'];
-    }
+    ret['images'] = this.images().map((img) =>
+      img.id != null ? { id: img.id } : img.data ? { data: img.data } : { url: img.url },
+    );
+    ret['cover_index'] = this.coverIndex();
     if (ret['gpx'] == '1') delete ret['gpx'];
     if (!ret['links']?.length) ret['links'] = null;
     ret['lat'] = +ret['lat'];
@@ -217,37 +234,53 @@ export class PlaceCreateModalComponent {
       });
   }
 
-  storePreviousImageAndClear() {
-    if (!this.placeForm.get('image_id')?.value) return;
-    this.previous_image_id = this.placeForm.get('image_id')?.value;
-    this.previous_image = this.placeForm.get('image')?.value;
-    this.placeForm.get('image_id')?.setValue(null);
-  }
-
-  onImageSelected(event: Event) {
+  onImagesSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    if (input.files?.length) {
-      const file = input.files[0];
+    if (!input.files?.length) return;
+
+    let skipped = 0;
+    // Decrement synchronously so a multi-file pick near the cap cannot overflow
+    // the gallery: images() is only updated in the async reader.onload callback,
+    // so reading it per file lets every file pass the cap check.
+    let slotsRemaining = MAX_IMAGES - this.images().length;
+    Array.from(input.files).forEach((file) => {
+      if (!file.type.startsWith('image/') || file.size > MAX_IMAGE_BYTES || slotsRemaining <= 0) {
+        skipped++;
+        return;
+      }
+      slotsRemaining--;
       const reader = new FileReader();
-
       reader.onload = (e) => {
-        this.storePreviousImageAndClear();
-        this.placeForm.get('image')?.setValue(e.target?.result as string);
-        this.placeForm.get('image')?.markAsDirty();
+        const url = e.target?.result as string;
+        this.images.update((list) => [...list, { data: url, url }]);
+        this.placeForm.markAsDirty();
       };
-
       reader.readAsDataURL(file);
+    });
+
+    if (skipped > 0) {
+      this.utilsService.toast(
+        'warn',
+        'Images skipped',
+        `${skipped} file(s) could not be added (invalid type, too large, or gallery full).`,
+      );
     }
+
+    input.value = ''; // allow re-picking the same file
   }
 
-  clearImage() {
-    this.placeForm.get('image')?.setValue(null);
-    this.placeForm.get('image_id')?.setValue(null);
+  setCover(index: number) {
+    this.coverIndex.set(index);
+    this.placeForm.markAsDirty();
+  }
 
-    if (this.previous_image && this.previous_image_id) {
-      this.placeForm.get('image_id')?.setValue(this.previous_image_id);
-      this.placeForm.get('image')?.setValue(this.previous_image);
-    }
+  removeImage(index: number) {
+    this.images.update((list) => list.filter((_, i) => i !== index));
+    this.coverIndex.update((cover) => {
+      if (index === cover) return 0;
+      return index < cover ? cover - 1 : cover;
+    });
+    this.placeForm.markAsDirty();
   }
 
   onGPXSelected(event: Event) {
@@ -335,10 +368,14 @@ export class PlaceCreateModalComponent {
   }
 
   setImageFromUrl() {
-    if (!this.imageUrl) return;
-    this.storePreviousImageAndClear();
-    this.placeForm.get('image')?.setValue(this.imageUrl);
-    this.placeForm.get('image')?.markAsDirty();
+    const url = this.imageUrl.trim();
+    if (!url) return;
+    if (this.images().length >= MAX_IMAGES) {
+      this.utilsService.toast('warn', 'Images skipped', 'Gallery is full.');
+      return;
+    }
+    this.images.update((list) => [...list, { url }]);
+    this.placeForm.markAsDirty();
     this.showImageUrlDialog = false;
     this.imageUrl = '';
   }

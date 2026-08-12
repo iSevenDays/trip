@@ -495,6 +495,9 @@
     "failed": "Routeberekening mislukt",
     "not_enough_values": "Niet genoeg waarden",
     "not_enough_values_desc": "Niet genoeg waarden om een route te bepalen",
+    "optimize": "Route optimaliseren",
+    "optimizing": "Route optimaliseren...",
+    "optimized_desc": "Geoptimaliseerd: {{original}} km → {{optimized}} km (bespaart {{savings}} km)",
     "title": "Routering"
   },
   "share": {

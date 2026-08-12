@@ -1,5 +1,5 @@
 import { inject, Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Category, ProviderBoundaries, Place } from '../types/poi';
 import { RoutingQuery, RoutingResponse, ProviderPlaceResult } from '../types/provider';
 import { BehaviorSubject, map, Observable, shareReplay, take, tap } from 'rxjs';
@@ -7,6 +7,8 @@ import { Info } from '../types/info';
 import { Backup, ImportResponse, Settings } from '../types/settings';
 import {
   ChecklistItem,
+  DayDirections,
+  OptimizeResponse,
   PackingItem,
   SharedTripDetails,
   Trip,
@@ -194,6 +196,21 @@ export class ApiService {
 
   deleteTripDayItem(tripId: number, day_id: number, item_id: number): Observable<null> {
     return this.httpClient.delete<null>(`${this.apiBaseUrl}/trips/${tripId}/days/${day_id}/items/${item_id}`);
+  }
+
+  getDayDirections(tripId: number, dayId: number, order?: number[]): Observable<DayDirections> {
+    let params: HttpParams | undefined;
+    if (order?.length) {
+      params = new HttpParams().set('order', order.join(','));
+    }
+    return this.httpClient.get<DayDirections>(
+      `${this.apiBaseUrl}/trips/${tripId}/days/${dayId}/directions`,
+      params ? { params } : undefined,
+    );
+  }
+
+  optimizeDay(tripId: number, dayId: number): Observable<OptimizeResponse> {
+    return this.httpClient.post<OptimizeResponse>(`${this.apiBaseUrl}/trips/${tripId}/days/${dayId}/optimize`, {});
   }
 
   getSharedTrip(token: string): Observable<Trip> {
