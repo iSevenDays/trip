@@ -10,8 +10,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from . import __version__
 from .config import ensure_secret_key, get_settings, migrate_config_file
 from .db.core import init_and_migrate_db
-from .routers import (admin, auth, bookings, categories, places, providers,
-                      settings, trips)
+from .routers import (admin, auth, bookings, categories, directions, item_routes,
+                      optimization, places, providers, settings, trips)
 from .utils.utils import silence_http_logging
 
 migrate_config_file()
@@ -47,6 +47,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(auth.router)
 app.include_router(bookings.router)
 app.include_router(categories.router)
+app.include_router(directions.router)
+app.include_router(item_routes.router)
+app.include_router(optimization.router)
 app.include_router(places.router)
 app.include_router(settings.router)
 app.include_router(trips.router)

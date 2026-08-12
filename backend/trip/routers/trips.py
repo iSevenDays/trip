@@ -1,9 +1,11 @@
 from hashlib import md5
 from io import BytesIO
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import (APIRouter, Depends, File, HTTPException, Request,
                      Response, UploadFile)
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy import update
 from sqlalchemy.orm import selectinload
@@ -29,8 +31,8 @@ from ..models.models import (Image, ItemImageInput, Place, Trip,
 from ..utils.date import dt_utc
 from ..utils.ical import build_trip_ics, ics_filename
 from ..utils.utils import (attachments_trip_folder_path, b64img_decode,
-                           generate_urlsafe, remove_image, save_attachment,
-                           save_image_to_file)
+                           download_file, generate_urlsafe, remove_image,
+                           save_attachment, save_image_to_file)
 from ..utils.zip import zip_trip_attachments
 
 router = APIRouter(prefix="/api/trips", tags=["trips"])
@@ -397,30 +399,70 @@ def delete_tripday(
     return {}
 
 
-def _resolve_item_images(
+async def _resolve_item_images(
     session: SessionDep,
     images: list[ItemImageInput],
     current_user: str,
     allowed_image_ids: set[int],
+    *,
+    size: int = 0,
 ) -> tuple[list[Image], list[str]]:
+    """Resolve a list of image inputs (id reuse / base64 data / URL) into Image rows.
+
+    Shared by trip-item and place flows. ``size`` controls the square
+    long-edge resize applied to new uploads (0 = keep original); trip items
+    pass 0, places pass PLACE_IMAGE_SIZE. Reused ids must be in
+    ``allowed_image_ids`` AND owned by ``current_user`` (IDOR guard).
+    """
+    max_count = get_settings().IMAGE_MAX_COUNT
+    if len(images) > max_count:
+        raise HTTPException(status_code=400, detail=f"Too many images (max {max_count})")
+    max_upload = get_settings().IMAGE_MAX_UPLOAD_SIZE
     resolved: list[Image] = []
     new_filenames: list[str] = []
-    for entry in images:
-        if entry.id is not None:
-            image = session.get(Image, entry.id) if entry.id in allowed_image_ids else None
-            if not image:
-                raise HTTPException(status_code=400, detail="Image not found")
-            resolved.append(image)
-        elif entry.data:
-            image_bytes = b64img_decode(entry.data)
-            filename, file_size = save_image_to_file(image_bytes, 0)
-            if not filename:
-                raise HTTPException(status_code=400, detail="Bad request")
-            new_filenames.append(filename)
-            image = Image(filename=filename, file_size=file_size, user=current_user)
-            session.add(image)
-            session.flush()
-            resolved.append(image)
+    try:
+        for entry in images:
+            if entry.id is not None:
+                image = session.get(Image, entry.id)
+                if entry.id not in allowed_image_ids or not image or image.user != current_user:
+                    # Missing, not allowed for this owner, or belongs to another user.
+                    raise HTTPException(status_code=404, detail="Image not found")
+                resolved.append(image)
+            elif entry.url:
+                path, _ = await download_file(entry.url)
+                if not path:
+                    raise HTTPException(status_code=400, detail="Bad image URL")
+                content = Path(path).read_bytes()
+                Path(path).unlink(must_exist=False)  # drop raw download; resized copy written below
+                if len(content) > max_upload:
+                    raise HTTPException(status_code=413, detail="Image too large")
+                filename, file_size = await run_in_threadpool(save_image_to_file, content, size)
+                if not filename:
+                    raise HTTPException(status_code=400, detail="Bad request")
+                new_filenames.append(filename)
+                image = Image(filename=filename, file_size=file_size, user=current_user)
+                session.add(image)
+                session.flush()
+                resolved.append(image)
+            elif entry.data:
+                if len(entry.data) > max_upload:
+                    raise HTTPException(status_code=413, detail="Image too large")
+                image_bytes = b64img_decode(entry.data)
+                filename, file_size = await run_in_threadpool(save_image_to_file, image_bytes, size)
+                if not filename:
+                    raise HTTPException(status_code=400, detail="Bad request")
+                new_filenames.append(filename)
+                image = Image(filename=filename, file_size=file_size, user=current_user)
+                session.add(image)
+                session.flush()
+                resolved.append(image)
+    except Exception:
+        # A later entry failed after earlier entries already wrote files. The
+        # DB rows roll back with the session, but the physical files do not, so
+        # remove the already-written files before re-raising.
+        for filename in new_filenames:
+            remove_image(filename)
+        raise
     return resolved, new_filenames
 
 
@@ -432,7 +474,7 @@ def _cover_image_id(images: list[Image], cover_index: int | None) -> int | None:
 
 
 @router.post("/{trip_id}/days/{day_id}/items", response_model=TripItemRead)
-def create_tripitem(
+async def create_tripitem(
     item: TripItemCreate,
     trip_id: int,
     day_id: int,
@@ -491,7 +533,7 @@ def create_tripitem(
     if item.images:
         # A new item has no existing gallery, so only freshly uploaded (data) entries
         # are valid here - reused ids have nothing to reference yet.
-        resolved, new_filenames = _resolve_item_images(session, item.images, current_user, set())
+        resolved, new_filenames = await _resolve_item_images(session, item.images, current_user, set())
         new_item.images = resolved
         new_item.image_id = _cover_image_id(resolved, item.cover_index)
 
@@ -507,7 +549,7 @@ def create_tripitem(
 
 
 @router.put("/{trip_id}/days/{day_id}/items/{item_id}", response_model=TripItemRead)
-def update_tripitem(
+async def update_tripitem(
     item: TripItemUpdate,
     trip_id: int,
     day_id: int,
@@ -583,7 +625,7 @@ def update_tripitem(
         item_data.pop("images")
         old_images = list(db_item.images)
         allowed_ids = {img.id for img in old_images}
-        resolved, new_filenames = _resolve_item_images(session, item.images or [], current_user, allowed_ids)
+        resolved, new_filenames = await _resolve_item_images(session, item.images or [], current_user, allowed_ids)
         resolved_ids = {img.id for img in resolved}
 
         db_item.images = resolved

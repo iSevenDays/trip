@@ -50,5 +50,9 @@
       class="absolute top-1/2 -translate-y-1/2 right-1 rounded opacity-0 group-hover:opacity-100 group-hover:-translate-x-2 transition-all" />
     }
   </div>
+
+  @if (place.images && place.images.length > 1) {
+  <app-item-gallery [images]="place.images" [coverId]="place.image_id" />
+  }
 </div>
 }

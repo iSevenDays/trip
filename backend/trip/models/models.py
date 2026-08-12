@@ -488,6 +488,24 @@ class TripPlaceLink(SQLModel, table=True):
     place_id: int = Field(foreign_key="place.id", primary_key=True, index=True, ondelete="CASCADE")
 
 
+class PlaceImageLink(SQLModel, table=True):
+    """Many-to-many link between Place and its gallery Images (mirrors
+    TripItemImageLink). The Place's single ``image_id``/``image`` pair still
+    holds the cover; this table holds the full ordered gallery."""
+
+    place_id: int = Field(foreign_key="place.id", ondelete="CASCADE", primary_key=True, index=True)
+    image_id: int = Field(foreign_key="image.id", ondelete="CASCADE", primary_key=True)
+
+
+class ItemImageInput(BaseModel):
+    """A gallery image input: reuse an existing Image by id, upload base64
+    data, or fetch from a URL. Used by both place and trip-item galleries."""
+
+    id: int | None = None
+    data: str | None = None
+    url: str | None = None
+
+
 class PlaceBase(SQLModel):
     name: str
     lat: float
@@ -513,6 +531,8 @@ class Place(PlaceBase, table=True):
     image_id: int | None = Field(default=None, foreign_key="image.id", ondelete="CASCADE")
     image: Image | None = Relationship(back_populates="places")
 
+    images: list[Image] = Relationship(link_model=PlaceImageLink)
+
     category_id: int = Field(foreign_key="category.id", index=True, ondelete="CASCADE")
     category: Category | None = Relationship(back_populates="places")
 
@@ -524,7 +544,8 @@ class Place(PlaceBase, table=True):
 
 
 class PlaceCreate(PlaceBase):
-    image: str | None = None
+    images: list[ItemImageInput] = []
+    cover_index: int | None = None
     category_id: int
 
 
@@ -534,7 +555,8 @@ class PlaceUpdate(PlaceBase):
     lng: float | None = None
     place: str | None = None
     category_id: int | None = None
-    image: str | None = None
+    images: list[ItemImageInput] | None = None
+    cover_index: int | None = None
 
 
 class PlaceRead(PlaceBase):
@@ -542,6 +564,7 @@ class PlaceRead(PlaceBase):
     category: CategoryRead
     image: str | None
     image_id: int | None
+    images: list[ImageRead] = []
     user: str
     trip_count: int = 0
 
@@ -562,6 +585,7 @@ class PlaceRead(PlaceBase):
             visited=obj.visited,
             image=_prefix_assets_url(obj.image.filename) if obj.image else None,
             image_id=obj.image_id,
+            images=[ImageRead.serialize(i) for i in obj.images],
             favorite=obj.favorite,
             gpx=("1" if obj.gpx else None)
             if exclude_gpx
@@ -846,11 +870,6 @@ class TripItem(TripItemBase, table=True):
     )
 
     images: list["Image"] = Relationship(link_model=TripItemImageLink)
-
-
-class ItemImageInput(BaseModel):
-    id: int | None = None
-    data: str | None = None
 
 
 class TripItemCreate(TripItemBase):

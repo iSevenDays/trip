@@ -495,6 +495,9 @@
     "failed": "Falha ao calcular a rota",
     "not_enough_values": "Valores insuficientes",
     "not_enough_values_desc": "Não há valores suficientes para calcular a rota",
+    "optimize": "Otimizar rota",
+    "optimizing": "Otimizando rota...",
+    "optimized_desc": "Otimizado: {{original}} km → {{optimized}} km (economiza {{savings}} km)",
     "title": "Roteamento"
   },
   "share": {

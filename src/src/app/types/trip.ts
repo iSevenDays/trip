@@ -89,6 +89,34 @@ export interface TripItemImage {
   url: string;
 }
 
+export interface DayDirectionsStop {
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  time: string | null;
+}
+
+export interface DayDirections {
+  google_maps_url: string;
+  stops: DayDirectionsStop[];
+  stop_count: number;
+}
+
+export interface OptimizePoint {
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+export interface OptimizeResponse {
+  original_order: OptimizePoint[];
+  optimized_order: OptimizePoint[];
+  original_distance_km: number;
+  optimized_distance_km: number;
+  savings_km: number;
+}
+
 export interface TripStatus {
   label: string;
   color: string;

@@ -534,6 +534,9 @@
     "failed": "Route computation failed",
     "not_enough_values": "Not enough values",
     "not_enough_values_desc": "Not enough values to route",
+    "optimize": "Optimize route",
+    "optimizing": "Optimizing route...",
+    "optimized_desc": "Optimized: {{original}} km → {{optimized}} km (saves {{savings}} km)",
     "title": "Routing"
   },
   "settings": {

@@ -1105,6 +1105,7 @@
             <div class="hidden md:flex gap-1">
               <p-button icon="pi pi-directions" text [pTooltip]="t('view.open_navigation')"
                 (click)="tripDayToNavigation(day.id)" />
+              <p-button icon="pi pi-bolt" text [pTooltip]="t('routing.optimize')" (click)="dayOptimize(day)" />
               <p-button icon="pi pi-car" text [pTooltip]="t('routing.compute')" (click)="dayRouting(day)" />
               <p-button icon="pi pi-wave-pulse" text [pTooltip]="t('common.actions.highlight')"
                 (click)="toggleTripDayHighlight(day.id)" />

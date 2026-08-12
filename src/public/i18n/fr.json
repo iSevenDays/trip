@@ -534,6 +534,9 @@
     "failed": "Le calcul de l'itinéraire a échoué",
     "not_enough_values": "Pas assez de valeurs",
     "not_enough_values_desc": "Pas assez de valeurs pour calculer l'itinéraire",
+    "optimize": "Optimiser l'itinéraire",
+    "optimizing": "Optimisation de l'itinéraire...",
+    "optimized_desc": "Optimisé : {{original}} km → {{optimized}} km (économise {{savings}} km)",
     "title": "Itinéraire"
   },
   "settings": {

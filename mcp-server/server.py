@@ -362,10 +362,11 @@ async def create_place(
     restroom: bool | None = None,
     links: list[str] | None = None,
 ) -> dict:
-    """Create a place. Pass image_url for a photo (server downloads automatically).
-    category_id must be one of the caller's own categories (see list_categories) — the
-    backend does not verify ownership, so an arbitrary id can silently attach a category
-    that belongs to a different user. Consider search_places first to get accurate lat/lng."""
+    """Create a place. Pass image_url for a photo (server downloads automatically and
+    adds it as the first gallery image / cover). category_id must be one of the caller's
+    own categories (see list_categories) — the backend does not verify ownership, so an
+    arbitrary id can silently attach a category that belongs to a different user.
+    Consider search_places first to get accurate lat/lng."""
     data = {
         "name": name,
         "lat": lat,
@@ -377,7 +378,7 @@ async def create_place(
         "category_id": category_id,
     }
     if image_url:
-        data["image"] = image_url
+        data["images"] = [{"url": image_url}]
     if allowdog is not None:
         data["allowdog"] = allowdog
     if favorite is not None:
@@ -419,7 +420,9 @@ async def update_place(
     restroom: bool | None = None,
     links: list[str] | None = None,
 ) -> dict:
-    """Update a place. Only the fields you pass are changed."""
+    """Update a place. Only the fields you pass are changed. Passing image_url
+    REPLACES the place's whole photo gallery with that single image (and makes it
+    the cover) — pass it only when you intend to overwrite any existing photos."""
     data = {}
     if name is not None:
         data["name"] = name
@@ -437,7 +440,11 @@ async def update_place(
     if duration is not None:
         data["duration"] = duration
     if image_url is not None:
-        data["image"] = image_url
+        if image_url:
+            data["images"] = [{"url": image_url}]
+        else:
+            # Empty string clears the gallery.
+            data["images"] = []
     if allowdog is not None:
         data["allowdog"] = allowdog
     if favorite is not None:

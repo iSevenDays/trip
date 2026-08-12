@@ -16,8 +16,8 @@ from ..config import get_settings
 from ..db.core import get_engine
 from ..deps import SessionDep, get_current_username
 from ..models.models import (Backup, BackupStatus, Category, CategoryRead,
-                             Image, Place, PlaceRead, Trip, TripAttachment,
-                             TripBooking, TripBookingAttachmentLink,
+                             Image, Place, PlaceImageLink, PlaceRead, Trip,
+                             TripAttachment, TripBooking, TripBookingAttachmentLink,
                              TripChecklistItem, TripChecklistItemRead, TripDay,
                              TripItem, TripItemAttachmentLink,
                              TripItemImageLink, TripPackingListItem,
@@ -346,6 +346,7 @@ def process_backup_import(
             places = []
             places_to_add = []
             place_old_ids = []
+            places_gallery: list[tuple[Place, list[Image]]] = []
             for place in data.get("places", []):
                 category_name = place.get("category", {}).get("name")
                 category = existing_categories.get(category_name)
@@ -355,41 +356,63 @@ def process_backup_import(
                 new_place = {
                     key: place[key]
                     for key in place.keys()
-                    if key not in {"id", "image", "image_id", "category", "category_id"}
+                    if key not in {"id", "image", "image_id", "category", "category_id", "images"}
                 }
                 new_place["user"] = current_user
                 new_place["category_id"] = category.id
 
-                if place.get("image_id"):
-                    place_filename = place.get("image").split("/")[-1]
-                    if place_filename and place_filename in image_files:
-                        try:
-                            image_bytes = _read_bounded(
-                                zipf,
-                                image_files[place_filename],
-                                get_settings().BACKUP_IMPORT_MAX_ENTRY_SIZE,
-                            )
-                            filename, file_size = save_image_to_file(
-                                image_bytes, get_settings().PLACE_IMAGE_SIZE
-                            )
-                            if filename:
-                                image = Image(filename=filename, file_size=file_size, user=current_user)
-                                session.add(image)
-                                session.flush()
-                                session.refresh(image)
-                                created_image_filenames.append(filename)
-                                new_place["image_id"] = image.id
-                        except Exception as exc:
-                            logger.warning(f"[BACKUP IMPORT]: Failed to restore place image: {exc}")
+                # Restore the image gallery. Newer backups carry an "images" list;
+                # older ones only have the single cover image/image_id, which we
+                # normalize into the same one-entry shape.
+                old_cover_id = place.get("image_id")
+                image_entries = place.get("images")
+                if not image_entries and old_cover_id:
+                    image_entries = [{"id": old_cover_id, "url": place.get("image", "")}]
+
+                restored_images: list[Image] = []
+                cover_image: Image | None = None
+                for img_entry in image_entries or []:
+                    img_filename = img_entry.get("url", "").split("/")[-1]
+                    if not img_filename or img_filename not in image_files:
+                        continue
+                    try:
+                        image_bytes = _read_bounded(
+                            zipf,
+                            image_files[img_filename],
+                            get_settings().BACKUP_IMPORT_MAX_ENTRY_SIZE,
+                        )
+                        filename, file_size = save_image_to_file(
+                            image_bytes, get_settings().PLACE_IMAGE_SIZE
+                        )
+                        if filename:
+                            image = Image(filename=filename, file_size=file_size, user=current_user)
+                            session.add(image)
+                            session.flush()
+                            session.refresh(image)
+                            created_image_filenames.append(filename)
+                            restored_images.append(image)
+                            if img_entry.get("id") == old_cover_id:
+                                cover_image = image
+                    except Exception as exc:
+                        logger.warning(f"[BACKUP IMPORT]: Failed to restore place image: {exc}")
+
+                if restored_images:
+                    new_place["image_id"] = (cover_image or restored_images[0]).id
 
                 new_place = Place(**new_place)
                 places_to_add.append(new_place)
                 places.append(new_place)
                 place_old_ids.append(place.get("id"))
+                if restored_images:
+                    places_gallery.append((new_place, restored_images))
 
             if places_to_add:
                 session.add_all(places_to_add)
                 session.flush()
+
+            for new_place, restored_images in places_gallery:
+                for image in restored_images:
+                    session.add(PlaceImageLink(place_id=new_place.id, image_id=image.id))
 
             db_user = session.get(User, current_user)
             if data.get("settings") and db_user:
@@ -766,7 +789,7 @@ def process_legacy_import(
             place_data = {
                 key: place[key]
                 for key in place.keys()
-                if key not in {"id", "image", "image_id", "category", "category_id"}
+                if key not in {"id", "image", "image_id", "category", "category_id", "images"}
             }
             place_data["user"] = current_user
             place_data["category_id"] = category.id
