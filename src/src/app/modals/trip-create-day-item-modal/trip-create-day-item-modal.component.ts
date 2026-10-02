@@ -11,8 +11,9 @@ import { TextareaModule } from 'primeng/textarea';
 import { InputMaskModule } from 'primeng/inputmask';
 import { UtilsService } from '../../services/utils.service';
 import { checkAndParseLatLng, formatLatLng } from '../../shared/latlng-parser';
+import { linkUrl } from '../../shared/link-display';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { InputNumberModule } from 'primeng/inputnumber';
+import { NumberInputDirective } from '../../shared/number-input.directive';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { InputGroupModule } from 'primeng/inputgroup';
 import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
@@ -21,7 +22,6 @@ import { ApiService } from '../../services/api.service';
 import { take } from 'rxjs';
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 
-/** One gallery slot while editing: an existing image (`id`) or a freshly picked one (`data`). */
 interface EditImage {
   id?: number;
   data?: string;
@@ -33,7 +33,7 @@ interface EditImage {
   imports: [
     FloatLabelModule,
     InputTextModule,
-    InputNumberModule,
+    NumberInputDirective,
     ButtonModule,
     SelectModule,
     ReactiveFormsModule,
@@ -125,7 +125,7 @@ export class TripCreateDayItemModalComponent {
           ...data.item,
           place: data.item.place?.id ?? null,
           attachments: data.item.attachments.map((a: TripAttachment) => a.id),
-          links: data.item.links ?? [],
+          links: (data.item.links ?? []).map(linkUrl),
         });
 
         const existing: TripItemImage[] = data.item.images ?? [];
@@ -201,7 +201,7 @@ export class TripCreateDayItemModalComponent {
     if (!p) return;
     this.itemForm.get('lat')?.setValue(p.lat);
     this.itemForm.get('lng')?.setValue(p.lng);
-    this.itemForm.get('price')?.setValue(p.price || 0);
+    if (p.price) this.itemForm.get('price')?.setValue(p.price);
     if (!this.itemForm.get('text')?.value) this.itemForm.get('text')?.setValue(p.name);
     if (p.description && !this.itemForm.get('comment')?.value) this.itemForm.get('comment')?.setValue(p.description);
 

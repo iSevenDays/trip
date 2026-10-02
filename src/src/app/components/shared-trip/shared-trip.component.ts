@@ -18,7 +18,6 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SkeletonModule } from 'primeng/skeleton';
 import { FloatLabelModule } from 'primeng/floatlabel';
-import * as L from 'leaflet';
 import { TableModule } from 'primeng/table';
 import {
   Trip,
@@ -27,32 +26,26 @@ import {
   TripItem,
   TripStatus,
   PackingItem,
+  PackingList,
   ChecklistItem,
+  ChecklistList,
   TripAttachment,
   PrintOptions,
   ViewTripItem,
-  DayViewModel,
   HighlightData,
 } from '../../types/trip';
 import { Category, Place } from '../../types/poi';
-import {
-  createMap,
-  placeToMarker,
-  createClusterGroup,
-  openNavigation,
-  tripDayMarker,
-  gpxToPolyline,
-  toDotMarker,
-  getGeolocationLatLng,
-} from '../../shared/map';
+import { openNavigation } from '../../shared/map';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DialogService } from 'primeng/dynamicdialog';
-import { debounceTime, distinctUntilChanged, Observable, take } from 'rxjs';
+import { debounceTime, distinctUntilChanged, forkJoin, Observable, take } from 'rxjs';
 import { UtilsService } from '../../services/utils.service';
+import { TripMapService } from '../../services/trip-map.service';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { MenuItem } from 'primeng/api';
 import { Menu, MenuModule } from 'primeng/menu';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { NaturalDurationPipe } from '../../shared/pipes/naturalduration.pipe';
 import { DialogModule } from 'primeng/dialog';
 import { Clipboard, ClipboardModule } from '@angular/cdk/clipboard';
 import { TooltipModule } from 'primeng/tooltip';
@@ -64,7 +57,11 @@ import { FileSizePipe } from '../../shared/pipes/filesize.pipe';
 import {
   bookingTypeClass as sharedBookingTypeClass,
   bookingTypeIcon as sharedBookingTypeIcon,
+  ChecklistGroup,
+  checklistProgress as sharedChecklistProgress,
   computeDistLatLng,
+  groupChecklistItems,
+  isOverdueReminder as sharedIsOverdueReminder,
   saveBlobAs,
   sortBookings as sharedSortBookings,
   tripFilename,
@@ -77,6 +74,7 @@ import { ToggleButtonModule } from 'primeng/togglebutton';
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 import { LinkChipComponent } from '../../shared/link-chip/link-chip.component';
 import { ItemGalleryComponent } from '../../shared/item-gallery/item-gallery.component';
+import { TripSkeletonComponent } from '../../shared/trip-skeleton/trip-skeleton.component';
 
 const HIGHLIGHT_COLORS = [
   '#e6194b',
@@ -94,8 +92,6 @@ const HIGHLIGHT_COLORS = [
   '#7a7a00',
 ];
 
-const MAX_MAP_INIT_RETRIES = 5;
-
 @Component({
   selector: 'app-shared-trip',
   standalone: true,
@@ -107,6 +103,7 @@ const MAX_MAP_INIT_RETRIES = 5;
     MenuModule,
     InputTextModule,
     MarkdownPipe,
+    NaturalDurationPipe,
     FloatLabelModule,
     TableModule,
     ButtonModule,
@@ -124,8 +121,10 @@ const MAX_MAP_INIT_RETRIES = 5;
     TranslocoDirective,
     LinkChipComponent,
     ItemGalleryComponent,
+    TripSkeletonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [TripMapService],
   templateUrl: './shared-trip.component.html',
   styleUrls: ['./shared-trip.component.scss'],
 })
@@ -139,7 +138,6 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   @ViewChild('selectedPanel', { read: ElementRef }) selectedPanelRef?: ElementRef;
   @ViewChild('selectedTabListRef') selectedTabListRef: TabList | undefined;
 
-  mapInitRetries = 0;
   selectedPanelHeight = signal(0);
   plansSearchInput = new FormControl('');
   apiService: ApiService;
@@ -150,11 +148,16 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   clipboard: Clipboard;
   changeDetectionRef: ChangeDetectorRef;
   translocoService: TranslocoService;
+  mapService: TripMapService;
 
   trip = signal<Trip | null>(null);
   hasError = signal(false);
   packingList = signal<PackingItem[]>([]);
   checklistItems = signal<ChecklistItem[]>([]);
+  packingLists = signal<PackingList[]>([]);
+  checklists = signal<ChecklistList[]>([]);
+  activePackingTab = signal<number | 'default'>('default');
+  activeChecklistTab = signal<number | 'default'>('default');
 
   searchQuery = signal('');
   isPlansPanelCollapsed = signal(false);
@@ -192,10 +195,12 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   printOptionsPlaces = computed(() => {
     const options = this.printOptions();
     const places: Set<Place> = new Set();
+    const seenIds = new Set<number>();
     this.trip()?.days.forEach((d) => {
       if (!options?.days.has(d.id)) return;
       d.items.forEach((i) => {
-        if (!i.place) return;
+        if (!i.place || seenIds.has(i.place.id)) return;
+        seenIds.add(i.place.id);
         places.add(i.place);
       });
     });
@@ -315,6 +320,9 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
       })
       .filter((vm) => vm !== null);
   });
+  anyDayCollapsed = computed(() =>
+    this.tripViewModel().some((group) => this.mapService.collapsedDayIds().has(group.day.id)),
+  );
   totalPrice = computed(() => {
     const trip = this.trip();
     if (!trip?.days) return 0;
@@ -344,10 +352,6 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
       (acc[item.category] ??= []).push(item);
       return acc;
     }, {});
-  });
-  dispChecklist = computed(() => {
-    const items = this.checklistItems();
-    return [...items].sort((a, b) => (a.checked !== b.checked ? (a.checked ? 1 : -1) : b.id - a.id));
   });
   watchlistItems = computed(() => {
     return this.tripViewModel()
@@ -420,15 +424,6 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   statuses: TripStatus[];
   availableItemProps = ['place', 'comment', 'latlng', 'price', 'status', 'distance'];
 
-  map?: L.Map;
-  markerClusterGroup?: L.MarkerClusterGroup;
-  tripMapAntLayer?: L.FeatureGroup;
-  markers = new Map<number, L.Marker>();
-  selectedItemMarker?: L.Marker;
-  highlightedMarkerElement?: HTMLElement;
-  gpxLayerGroup?: L.LayerGroup;
-  displayedItemGpxId = signal<number | null>(null);
-
   constructor() {
     this.apiService = inject(ApiService);
     this.route = inject(ActivatedRoute);
@@ -438,6 +433,7 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
     this.clipboard = inject(Clipboard);
     this.changeDetectionRef = inject(ChangeDetectorRef);
     this.translocoService = inject(TranslocoService);
+    this.mapService = inject(TripMapService);
 
     this.statuses = this.utilsService.statuses;
     this.username = this.utilsService.loggedUser;
@@ -472,75 +468,17 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const vm = this.tripViewModel();
       untracked(() => {
-        if (this.map && this.trip()) this.updateMapVisualization(vm);
+        if (this.mapService.map && this.trip()) {
+          this.mapService.updateMapVisualization(vm, this.places(), this.usedPlaceIds(), (place, items) =>
+            this.onPlaceMarkerClick(place, items),
+          );
+        }
       });
     });
 
     effect(() => {
       const data = this.highlightLayerData();
-
-      untracked(() => {
-        const activePlaceIds = data?.activePlaceIds || new Set<number>();
-        this.markers.forEach((marker: any, placeId) => {
-          const isHighlighted = activePlaceIds.has(placeId);
-          marker.isHighlightedPlace = isHighlighted;
-          const el = marker.getElement();
-          if (!el) return;
-
-          if (isHighlighted) el.classList.add('active-trip-place');
-          else el.classList.remove('active-trip-place');
-        });
-
-        if (this.tripMapAntLayer) {
-          this.map?.removeLayer(this.tripMapAntLayer);
-          this.tripMapAntLayer = undefined;
-        }
-
-        const mapContainer = this.map?.getContainer();
-        if (!data || !this.map) {
-          if (mapContainer) mapContainer.classList.remove('leaflet-tripday-pane-highlighting');
-          return;
-        }
-
-        if (mapContainer) mapContainer.classList.add('leaflet-tripday-pane-highlighting');
-
-        const layerGroup = L.featureGroup();
-        data.paths.forEach((p) => {
-          const polyline = L.polyline(p.coords, {
-            color: p.options.color,
-            weight: p.options.weight,
-            className: 'animated-path',
-            smoothFactor: 1.5,
-          });
-          layerGroup.addLayer(polyline);
-        });
-        data.markers.forEach((item) => {
-          const marker = tripDayMarker(item);
-          marker.on('add', (e: any) => e.target.getElement()?.classList.add('active-trip-marker'));
-          marker.on('click', () => {
-            if (this.selectedItem()?.id === item.id) {
-              this.selectedItem.set(null);
-              this.selectedPlace.set(null);
-              this.selectedDay.set(null);
-              return;
-            }
-
-            this.selectedItem.set(this.normalizeItem(item));
-            this.selectedPlace.set(null);
-            this.selectedDay.set(null);
-          });
-          layerGroup.addLayer(marker);
-        });
-        data.gpxData.forEach((gpx) => layerGroup.addLayer(gpxToPolyline(gpx)));
-
-        this.tripMapAntLayer = layerGroup;
-        requestAnimationFrame(() => {
-          if (this.tripMapAntLayer && this.map) {
-            this.tripMapAntLayer.addTo(this.map);
-            this.map.fitBounds(data.bounds, { padding: [30, 30], maxZoom: 16 });
-          }
-        });
-      });
+      untracked(() => this.mapService.applyHighlight(data, (item) => this.onHighlightItemClick(item)));
     });
 
     effect(() => {
@@ -570,23 +508,7 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
         } else this.selectedPanelHeight.set(0);
       });
 
-      untracked(() => {
-        this.clearSelectedItemHighlight();
-        this.clearItemGPX();
-        if (!this.map) return;
-        if (place) {
-          const existingMarker = this.markers.get(place.id);
-          if (existingMarker) this.highlightExistingMarker(existingMarker);
-          return;
-        } else if (item) {
-          const lat = item.lat;
-          const lng = item.lng;
-          if (lat && lng) {
-            this.selectedItemMarker = tripDayMarker(item);
-            this.selectedItemMarker.addTo(this.map);
-          }
-        }
-      });
+      untracked(() => this.mapService.showSelection(place, item));
     });
 
     const viewPrefs = this.utilsService.getTripViewPrefs();
@@ -604,7 +526,7 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
       const currentTrip = this.trip();
 
       untracked(() => {
-        if (!this.map && currentTrip) requestAnimationFrame(() => this.initMap());
+        if (!this.mapService.map && currentTrip) requestAnimationFrame(() => this.initMap());
       });
     });
   }
@@ -620,29 +542,7 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.cleanupMap();
-  }
-
-  cleanupMap() {
-    if (this.tripMapAntLayer) {
-      this.map?.removeLayer(this.tripMapAntLayer);
-      this.tripMapAntLayer = undefined;
-    }
-    if (this.gpxLayerGroup) {
-      this.map?.removeLayer(this.gpxLayerGroup);
-      this.gpxLayerGroup = undefined;
-    }
-    this.displayedItemGpxId.set(null);
-    this.markers.forEach((marker) => marker.remove());
-    this.markers.clear();
-    if (this.markerClusterGroup) {
-      this.markerClusterGroup.clearLayers();
-      this.markerClusterGroup = undefined;
-    }
-    if (this.map) {
-      this.map.remove();
-      this.map = undefined;
-    }
+    this.mapService.cleanupMap();
   }
 
   getItemDayLabel(item: ViewTripItem): string {
@@ -670,26 +570,6 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   }
 
   initMap() {
-    const mapContainer = document.getElementById('map');
-    if (!mapContainer) {
-      if (this.mapInitRetries < MAX_MAP_INIT_RETRIES) {
-        this.mapInitRetries++;
-        setTimeout(() => this.initMap(), 100 + this.mapInitRetries * 100);
-      } else {
-        console.error('Failed to initialize map: container not found');
-        this.utilsService.toast(
-          'error',
-          this.translocoService.translate('common.status.error'),
-          this.translocoService.translate('share.error_map_render'),
-        );
-        return;
-      }
-      return;
-    }
-
-    this.mapInitRetries = 0;
-
-    this.cleanupMap();
     const contextMenuItems = [
       {
         text: this.translocoService.translate('clipboard.copy_coords'),
@@ -700,87 +580,45 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
       },
     ];
 
-    this.map = createMap(contextMenuItems);
-    this.markerClusterGroup = createClusterGroup().addTo(this.map);
-    this.updateMapVisualization(this.tripViewModel());
-    this.resetMapBounds();
+    this.mapService.initMap({
+      contextMenuItems,
+      onMissingContainer: () => {
+        console.error('Failed to initialize map: container not found');
+        this.utilsService.toast(
+          'error',
+          this.translocoService.translate('common.status.error'),
+          this.translocoService.translate('share.error_map_render'),
+        );
+      },
+      onCreated: () => {
+        this.mapService.updateMapVisualization(
+          this.tripViewModel(),
+          this.places(),
+          this.usedPlaceIds(),
+          (place, items) => this.onPlaceMarkerClick(place, items),
+        );
+        this.mapService.resetMapBounds(this.places(), this.tripViewModel());
+      },
+    });
   }
 
-  updateMapVisualization(viewModels: DayViewModel[]) {
-    if (!this.map || !this.markerClusterGroup) return;
-
-    this.markerClusterGroup.clearLayers();
-    this.markers.clear();
-
-    if (this.tripMapAntLayer) {
-      this.map.removeLayer(this.tripMapAntLayer);
-      this.tripMapAntLayer = undefined;
-    }
-
-    const usedIds = this.usedPlaceIds();
-    const allPlaces = this.places();
-    const markersToAdd: L.Marker[] = [];
-
-    const itemsByPlaceId = new Map<number, TripItem[]>();
-    viewModels.forEach((vm) => {
-      vm.items.forEach((item) => {
-        if (item.place?.id) {
-          if (!itemsByPlaceId.has(item.place.id)) {
-            itemsByPlaceId.set(item.place.id, []);
-          }
-          itemsByPlaceId.get(item.place.id)!.push(item);
-        }
-      });
-    });
-
-    allPlaces.forEach((place) => {
-      const isUsed = usedIds.has(place.id);
-      const marker = placeToMarker(place, false, !isUsed);
-      marker.on('add', (e: any) => {
-        const el = e.target.getElement();
-        if (el && e.target.isHighlightedPlace) el.classList.add('active-trip-place');
-      });
-
-      const itemsUsingPlace = itemsByPlaceId.get(place.id) || [];
-      marker.on('click', () => {
-        this.selectedPlace.set(place);
-        this.selectedItem.set(null);
-        this.selectedDay.set(null);
-        this.selectedPlaceActiveTabIndex.set(itemsUsingPlace.length > 0 ? itemsUsingPlace.length : 0);
-      });
-
-      this.markers.set(place.id, marker);
-      markersToAdd.push(marker);
-    });
-
-    if (markersToAdd.length) {
-      this.markerClusterGroup.addLayers(markersToAdd);
-    }
+  onPlaceMarkerClick(place: Place, itemsUsingPlace: ViewTripItem[]) {
+    this.selectedPlace.set(place);
+    this.selectedItem.set(null);
+    this.selectedDay.set(null);
+    this.selectedPlaceActiveTabIndex.set(itemsUsingPlace.length > 0 ? itemsUsingPlace.length : 0);
   }
 
-  resetMapBounds() {
-    const allPlaces = this.places();
-
-    if (!allPlaces.length) {
-      const trip = this.trip();
-      if (!trip?.days.length) return;
-
-      const itemsWithCoordinates = this.tripViewModel()
-        .flatMap((dayVM) => dayVM.items)
-        .filter((i) => i.lat != null && i.lng != null);
-
-      if (!itemsWithCoordinates.length) return;
-      this.map?.fitBounds(
-        itemsWithCoordinates.map((i) => [i.lat!, i.lng!]),
-        { padding: [15, 15] },
-      );
+  onHighlightItemClick(item: TripItem) {
+    if (this.selectedItem()?.id === item.id) {
+      this.selectedItem.set(null);
+      this.selectedPlace.set(null);
+      this.selectedDay.set(null);
       return;
     }
-
-    this.map?.fitBounds(
-      allPlaces.map((p) => [p.lat, p.lng]),
-      { padding: [15, 15] },
-    );
+    this.selectedItem.set(this.normalizeItem(item));
+    this.selectedPlace.set(null);
+    this.selectedDay.set(null);
   }
 
   normalizeItem(item: TripItem): ViewTripItem {
@@ -943,9 +781,31 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
       if (!data) return;
       this.printOptions.set(data);
       this.changeDetectionRef.detectChanges();
-      window.print();
-      this.printOptions.set(null);
+      this.waitForPrintImages().then(() => {
+        window.print();
+        this.printOptions.set(null);
+      });
     });
+  }
+
+  waitForPrintImages(timeoutMs = 3000): Promise<void> {
+    const pending = Array.from(document.querySelectorAll<HTMLImageElement>('#print-section img')).filter(
+      (img) => !img.complete,
+    );
+    if (!pending.length) return Promise.resolve();
+
+    const loaded = Promise.all(
+      pending.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            img.addEventListener('load', () => resolve(), { once: true });
+            img.addEventListener('error', () => resolve(), { once: true });
+          }),
+      ),
+    ).then(() => undefined);
+
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    return Promise.race([loaded, timeout]);
   }
 
   toggleFiltering() {
@@ -970,6 +830,10 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
 
   toggleArchiveReview() {
     this.isArchivalReviewDisplayed.update((v) => !v);
+  }
+
+  toggleAllDaysCollapse() {
+    this.mapService.toggleAllDaysCollapse(this.tripViewModel().map((group) => group.day.id));
   }
 
   getDayAttachments(day: TripDay): TripAttachment[] {
@@ -1110,103 +974,38 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
   }
 
   onRowEnter(item: ViewTripItem) {
-    if (this.selectedPlace() || this.selectedItem()) return;
-    this.clearSelectedItemHighlight();
-
-    const placeId = item?.place?.id;
-    if (!placeId) return;
-
-    const marker = this.markers.get(placeId);
-    if (marker) this.highlightExistingMarker(marker);
+    if (this.hasSelection()) return;
+    this.mapService.onRowEnter(item);
   }
 
   onRowLeave() {
-    if (this.selectedPlace() || this.selectedItem()) return;
-    this.clearSelectedItemHighlight();
-  }
-
-  async centerOnMe() {
-    const position = await getGeolocationLatLng();
-    if (position.err) {
-      this.utilsService.toast('error', this.translocoService.translate('common.status.error'), position.err);
-      return;
-    }
-
-    const coords: any = [position.lat!, position.lng!];
-    this.map?.flyTo(coords);
-    const marker = toDotMarker(coords);
-    marker.addTo(this.map!);
-    setTimeout(() => {
-      marker.remove();
-    }, 4000);
-  }
-
-  highlightExistingMarker(marker: L.Marker) {
-    if (!this.markerClusterGroup) return;
-    const markerElement = marker.getElement() as HTMLElement;
-    if (markerElement) {
-      markerElement.classList.add('list-hover');
-      this.highlightedMarkerElement = markerElement;
-    } else {
-      const parentCluster = (this.markerClusterGroup as any).getVisibleParent(marker);
-      if (parentCluster) {
-        const clusterEl = parentCluster.getElement();
-        if (clusterEl) {
-          clusterEl.classList.add('list-hover');
-          this.highlightedMarkerElement = clusterEl;
-        }
-      }
-    }
-  }
-
-  clearSelectedItemHighlight() {
-    if (this.selectedItemMarker) {
-      this.map?.removeLayer(this.selectedItemMarker);
-      this.selectedItemMarker = undefined;
-    }
-    if (this.highlightedMarkerElement) {
-      this.highlightedMarkerElement.classList.remove('list-hover');
-      this.highlightedMarkerElement = undefined;
-    }
-  }
-
-  toggleItemGPX(item: ViewTripItem) {
-    if (!this.map || !item.gpx) return;
-
-    if (this.displayedItemGpxId() === item.id) {
-      this.clearItemGPX();
-      return;
-    }
-
-    if (!this.gpxLayerGroup) this.gpxLayerGroup = L.layerGroup().addTo(this.map);
-    this.gpxLayerGroup.clearLayers();
-
-    try {
-      const polyline = gpxToPolyline(item.gpx);
-      this.gpxLayerGroup.addLayer(polyline);
-      this.map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-      this.displayedItemGpxId.set(item.id);
-    } catch {
-      this.utilsService.toast(
-        'error',
-        this.translocoService.translate('common.status.error'),
-        this.translocoService.translate('messages.could_not_parse_gpx'),
-      );
-    }
-  }
-
-  clearItemGPX() {
-    this.gpxLayerGroup?.clearLayers();
-    this.displayedItemGpxId.set(null);
+    if (this.hasSelection()) return;
+    this.mapService.onRowLeave();
   }
 
   openPackingList() {
     if (!this.token) return;
-    this.apiService.getSharedTripPackingList(this.token).subscribe((items) => {
+    const token = this.token;
+    forkJoin([
+      this.apiService.getSharedTripPackingList(token),
+      this.apiService.getSharedTripPackingLists(token),
+    ]).subscribe(([items, lists]) => {
       this.packingList.set(items);
+      this.packingLists.set(lists);
+      this.activePackingTab.set('default');
       this.isPackingDialogVisible = !this.isPackingDialogVisible;
       this.computeMenuTripPackingItems();
     });
+  }
+
+  dispPackingListFor(items: PackingItem[]): Record<string, PackingItem[]> {
+    const sorted = [...items].sort((a, b) =>
+      a.packed !== b.packed ? (a.packed ? 1 : -1) : a.text.localeCompare(b.text),
+    );
+    return sorted.reduce<Record<string, PackingItem[]>>((acc, item) => {
+      (acc[item.category] ??= []).push(item);
+      return acc;
+    }, {});
   }
 
   computeMenuTripPackingItems() {
@@ -1254,10 +1053,27 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
 
   openChecklist() {
     if (!this.token) return;
-    this.apiService.getSharedTripChecklist(this.token).subscribe((items) => {
-      this.checklistItems.set(items);
-      this.isChecklistDialogVisible = !this.isChecklistDialogVisible;
-    });
+    const token = this.token;
+    forkJoin([this.apiService.getSharedTripChecklist(token), this.apiService.getSharedTripChecklists(token)]).subscribe(
+      ([items, checklists]) => {
+        this.checklistItems.set(items);
+        this.checklists.set(checklists);
+        this.activeChecklistTab.set('default');
+        this.isChecklistDialogVisible = !this.isChecklistDialogVisible;
+      },
+    );
+  }
+
+  groupedChecklist(items: ChecklistItem[]): ChecklistGroup[] {
+    return groupChecklistItems(items);
+  }
+
+  checklistProgress(items: ChecklistItem[]): { done: number; total: number; pct: number } {
+    return sharedChecklistProgress(items);
+  }
+
+  isOverdueReminder(item: ChecklistItem): boolean {
+    return sharedIsOverdueReminder(item);
   }
 
   openAttachmentsModal() {
@@ -1339,11 +1155,11 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
 
   flyTo(latlng?: [number, number]) {
     const selected = this.selectedItem() || this.selectedPlace();
-    if (!this.map || (!latlng && (!selected || !selected.lat || !selected.lng))) return;
+    if (!this.mapService.map || (!latlng && (!selected || !selected.lat || !selected.lng))) return;
 
     const lat: number = latlng ? latlng[0] : selected!.lat!;
     const lng: number = latlng ? latlng[1] : selected!.lng!;
-    this.map.flyTo([lat, lng], this.map.getZoom() || 9, { duration: 2 });
+    this.mapService.map.flyTo([lat, lng], this.mapService.map.getZoom() || 9, { duration: 2 });
   }
 
   bookingTypeIcon(type: string): string {
@@ -1356,5 +1172,9 @@ export class SharedTripComponent implements AfterViewInit, OnDestroy {
 
   sortBookings(bookings: TripBooking[]): TripBooking[] {
     return sharedSortBookings(bookings);
+  }
+
+  bookingTitle(booking: TripBooking): string {
+    return [booking.label, booking.reference, booking.notes].filter(Boolean).join(' · ');
   }
 }

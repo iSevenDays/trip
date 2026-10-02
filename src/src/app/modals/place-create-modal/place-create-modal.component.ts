@@ -20,7 +20,8 @@ import { ProviderPlaceResult } from '../../types/provider';
 import { CheckboxModule } from 'primeng/checkbox';
 import { TooltipModule } from 'primeng/tooltip';
 import { checkAndParseLatLng, formatLatLng } from '../../shared/latlng-parser';
-import { InputNumberModule } from 'primeng/inputnumber';
+import { linkUrl } from '../../shared/link-display';
+import { NumberInputDirective } from '../../shared/number-input.directive';
 import { PlaceCreateProviderModalComponent } from '../place-create-provider-modal/place-create-provider-modal.component';
 import { DialogModule } from 'primeng/dialog';
 import { TranslocoDirective } from '@jsverse/transloco';
@@ -42,7 +43,7 @@ const MAX_IMAGES = 10;
   imports: [
     FloatLabelModule,
     InputTextModule,
-    InputNumberModule,
+    NumberInputDirective,
     ButtonModule,
     SelectModule,
     ReactiveFormsModule,
@@ -122,7 +123,7 @@ export class PlaceCreateModalComponent {
 
     const patchValue = this.config.data?.place as Place | undefined;
     if (patchValue) {
-      this.placeForm.patchValue({ ...patchValue, links: patchValue.links ?? [] });
+      this.placeForm.patchValue({ ...patchValue, links: (patchValue.links ?? []).map(linkUrl) });
 
       const existing = patchValue.images ?? [];
       if (existing.length) {

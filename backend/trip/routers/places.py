@@ -6,8 +6,9 @@ from sqlmodel import select
 
 from ..config import get_settings
 from ..deps import SessionDep, get_current_username
-from ..models.models import Place, PlaceCreate, PlaceRead, PlaceUpdate
+from ..models.models import (Place, PlaceCreate, PlaceRead, PlaceUpdate, User)
 from ..security import verify_exists_and_owns
+from ..utils.link_titles import resolve_links
 from ..utils.utils import remove_image
 from .trips import _cover_image_id, _resolve_item_images
 
@@ -35,6 +36,9 @@ def read_places(
 async def create_place(
     place: PlaceCreate, session: SessionDep, current_user: Annotated[str, Depends(get_current_username)]
 ) -> PlaceRead:
+    db_user = session.get(User, current_user)
+    links = await resolve_links(None, place.links, db_user.fetch_link_titles)
+
     new_place = Place(
         name=place.name,
         lat=place.lat,
@@ -48,8 +52,8 @@ async def create_place(
         category_id=place.category_id,
         visited=place.visited,
         restroom=place.restroom,
-        links=place.links,
         user=current_user,
+        links=links,
     )
 
     new_filenames: list[str] = []
@@ -84,6 +88,12 @@ async def update_place(
     verify_exists_and_owns(current_user, db_place)
 
     place_data = place.model_dump(exclude_unset=True)
+    if "links" in place_data:
+        db_user = session.get(User, current_user)
+        place_data["links"] = await resolve_links(
+            db_place.links, place_data["links"], db_user.fetch_link_titles
+        )
+
     place_data.pop("cover_index", None)
     # An absent "images" key leaves the gallery untouched; an empty list clears it.
     new_filenames: list[str] = []

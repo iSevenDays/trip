@@ -4,7 +4,7 @@ import 'leaflet-contextmenu';
 import { ProviderBoundaries, Place } from '../types/poi';
 import { TripItem } from '../types/trip';
 
-export const DEFAULT_TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+export const DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export interface ContextMenuItem {
   text: string;
   index?: number;
@@ -20,7 +20,11 @@ export interface MarkerOptions extends L.MarkerOptions {
   contextmenuItems: ContextMenuItem[];
 }
 
-export function createMap(contextMenuItems: ContextMenuItem[] = [], tilelayer: string = DEFAULT_TILE_URL): L.Map {
+export function createMap(
+  contextMenuItems: ContextMenuItem[] = [],
+  tilelayer: string = DEFAULT_TILE_URL,
+  onTilesLoaded?: () => void,
+): L.Map {
   const southWest = L.latLng(-89.99, -180);
   const northEast = L.latLng(89.99, 180);
   const bounds = L.latLngBounds(southWest, northEast);
@@ -35,12 +39,13 @@ export function createMap(contextMenuItems: ContextMenuItem[] = [], tilelayer: s
     .setView(center, 10)
     .setMaxBounds(bounds);
 
-  L.tileLayer(tilelayer, {
+  const tiles = L.tileLayer(tilelayer, {
     maxZoom: 18,
     minZoom: 3,
-    attribution:
-      '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
+
+  if (onTilesLoaded) tiles.once('load', onTilesLoaded);
 
   return map;
 }
@@ -207,20 +212,34 @@ export function getGeolocationLatLng(): Promise<{ lat?: number; lng?: number; er
       return;
     }
 
+    const onSuccess = (position: GeolocationPosition) => {
+      resolve({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      });
+    };
+    const onError = (error: GeolocationPositionError) => {
+      console.error(error);
+      resolve({
+        err: `Error resolving your geolocation: ${error.message || 'check console for details'}`,
+      });
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position: GeolocationPosition) => {
-        resolve({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-      },
+      onSuccess,
       (error) => {
-        console.error(error);
-        resolve({
-          err: `Error resolving your geolocation: ${error.message || 'check console for details'}`,
-        });
+        // GPS fix too slow (cold start, indoors): fall back to network-based location
+        if (error.code === error.TIMEOUT) {
+          navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 60000,
+          });
+          return;
+        }
+        onError(error);
       },
-      { enableHighAccuracy: true, timeout: 5000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
     );
   });
 }

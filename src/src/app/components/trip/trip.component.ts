@@ -27,26 +27,18 @@ import {
   TripItem,
   TripStatus,
   PackingItem,
+  PackingList,
   ChecklistItem,
+  ChecklistList,
   TripMember,
   TripAttachment,
   PrintOptions,
   SharedTripDetails,
   ViewTripItem,
-  DayViewModel,
   HighlightData,
 } from '../../types/trip';
 import { Category, Place } from '../../types/poi';
-import {
-  createMap,
-  placeToMarker,
-  createClusterGroup,
-  openNavigation,
-  tripDayMarker,
-  gpxToPolyline,
-  toDotMarker,
-  getGeolocationLatLng,
-} from '../../shared/map';
+import { openNavigation, tripDayMarker } from '../../shared/map';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DialogService, DynamicDialogRef } from 'primeng/dynamicdialog';
 import { TripPlaceSelectModalComponent } from '../../modals/trip-place-select-modal/trip-place-select-modal.component';
@@ -60,6 +52,7 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { MenuItem } from 'primeng/api';
 import { Menu, MenuModule } from 'primeng/menu';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+import { NaturalDurationPipe } from '../../shared/pipes/naturalduration.pipe';
 import { PlaceCreateModalComponent } from '../../modals/place-create-modal/place-create-modal.component';
 import { Settings } from '../../types/settings';
 import { DialogModule } from 'primeng/dialog';
@@ -70,6 +63,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { CheckboxChangeEvent, CheckboxModule } from 'primeng/checkbox';
 import { TripCreatePackingModalComponent } from '../../modals/trip-create-packing-modal/trip-create-packing-modal.component';
 import { TripCreateChecklistModalComponent } from '../../modals/trip-create-checklist-modal/trip-create-checklist-modal.component';
+import { TripListNameModalComponent } from '../../modals/trip-list-name-modal/trip-list-name-modal.component';
 import { TripInviteMemberModalComponent } from '../../modals/trip-invite-member-modal/trip-invite-member-modal.component';
 import { TripNotesModalComponent } from '../../modals/trip-notes-modal/trip-notes-modal.component';
 import { TripArchiveModalComponent } from '../../modals/trip-archive-modal/trip-archive-modal.component';
@@ -79,8 +73,12 @@ import { FileSizePipe } from '../../shared/pipes/filesize.pipe';
 import {
   bookingTypeClass as sharedBookingTypeClass,
   bookingTypeIcon as sharedBookingTypeIcon,
+  ChecklistGroup,
+  checklistProgress as sharedChecklistProgress,
   computeDistLatLng,
   daterangeToTripDays,
+  groupChecklistItems,
+  isOverdueReminder as sharedIsOverdueReminder,
   saveBlobAs,
   sortBookings as sharedSortBookings,
   tripFilename,
@@ -91,10 +89,12 @@ import { TripBulkEditModalComponent } from '../../modals/trip-bulk-edit-modal/tr
 import { TripBookingModalComponent } from '../../modals/trip-booking-modal/trip-booking-modal.component';
 import { PlaceListItemComponent } from '../../shared/place-list-item/place-list-item.component';
 import { RouteManagerService } from '../../services/route-manager.service';
+import { TripMapService } from '../../services/trip-map.service';
 import { TripPrettyPrintModalComponent } from '../../modals/trip-pretty-print-modal/trip-pretty-print-modal.component';
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 import { LinkChipComponent } from '../../shared/link-chip/link-chip.component';
 import { ItemGalleryComponent } from '../../shared/item-gallery/item-gallery.component';
+import { TripSkeletonComponent } from '../../shared/trip-skeleton/trip-skeleton.component';
 
 const HIGHLIGHT_COLORS = [
   '#e6194b',
@@ -123,6 +123,7 @@ const HIGHLIGHT_COLORS = [
     MenuModule,
     InputTextModule,
     MarkdownPipe,
+    NaturalDurationPipe,
     FloatLabelModule,
     TableModule,
     ButtonModule,
@@ -140,8 +141,10 @@ const HIGHLIGHT_COLORS = [
     TranslocoDirective,
     LinkChipComponent,
     ItemGalleryComponent,
+    TripSkeletonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [TripMapService],
   templateUrl: './trip.component.html',
   styleUrls: ['./trip.component.scss'],
 })
@@ -167,11 +170,16 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   routeManager: RouteManagerService;
   changeDetectionRef: ChangeDetectorRef;
   translocoService: TranslocoService;
+  mapService: TripMapService;
 
   trip = signal<Trip | null>(null);
   tripMembers = signal<TripMember[]>([]);
   packingList = signal<PackingItem[]>([]);
   checklistItems = signal<ChecklistItem[]>([]);
+  packingLists = signal<PackingList[]>([]);
+  checklists = signal<ChecklistList[]>([]);
+  activePackingTab = signal<number | 'default'>('default');
+  activeChecklistTab = signal<number | 'default'>('default');
 
   searchQuery = signal<string>('');
   isPlansPanelCollapsed = signal<boolean>(false);
@@ -214,10 +222,12 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   printOptionsPlaces = computed(() => {
     const options = this.printOptions();
     const places: Set<Place> = new Set();
+    const seenIds = new Set<number>();
     this.trip()?.days.forEach((d) => {
       if (!options?.days.has(d.id)) return;
       d.items.forEach((i) => {
-        if (!i.place) return;
+        if (!i.place || seenIds.has(i.place.id)) return;
+        seenIds.add(i.place.id);
         places.add(i.place);
       });
     });
@@ -344,6 +354,9 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       })
       .filter((vm) => vm !== null);
   });
+  anyDayCollapsed = computed(() =>
+    this.tripViewModel().some((group) => this.mapService.collapsedDayIds().has(group.day.id)),
+  );
   totalPrice = computed(() => {
     const trip = this.trip();
     if (!trip?.days) return 0;
@@ -364,21 +377,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     const usedIds = this.usedPlaceIds();
     return allPlaces.filter((place) => !usedIds.has(place.id));
   });
-  dispPackingList = computed(() => {
-    const list = this.packingList();
-    const sorted = [...list].sort((a, b) =>
-      a.packed !== b.packed ? (a.packed ? 1 : -1) : a.text.localeCompare(b.text),
-    );
-
-    return sorted.reduce<Record<string, PackingItem[]>>((acc, item) => {
-      (acc[item.category] ??= []).push(item);
-      return acc;
-    }, {});
-  });
-  dispChecklist = computed(() => {
-    const items = this.checklistItems();
-    return [...items].sort((a, b) => (a.checked !== b.checked ? (a.checked ? 1 : -1) : b.id - a.id));
-  });
+  dispPackingList = computed(() => this.sortPackingItems(this.packingList()));
   watchlistItems = computed(() => {
     return this.tripViewModel()
       .flatMap((day) => day.items)
@@ -483,15 +482,6 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   statuses: TripStatus[];
   availableItemProps = ['place', 'comment', 'latlng', 'price', 'status', 'distance'];
 
-  map?: L.Map;
-  markerClusterGroup?: L.MarkerClusterGroup;
-  tripMapAntLayer?: L.FeatureGroup;
-  markers = new Map<number, L.Marker>();
-  selectedItemMarker?: L.Marker;
-  highlightedMarkerElement?: HTMLElement;
-  gpxLayerGroup?: L.LayerGroup;
-  displayedItemGpxId = signal<number | null>(null);
-
   constructor() {
     this.apiService = inject(ApiService);
     this.route = inject(ActivatedRoute);
@@ -502,6 +492,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     this.routeManager = inject(RouteManagerService);
     this.changeDetectionRef = inject(ChangeDetectorRef);
     this.translocoService = inject(TranslocoService);
+    this.mapService = inject(TripMapService);
 
     this.statuses = this.utilsService.statuses;
     this.username = this.utilsService.loggedUser;
@@ -541,74 +532,21 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const vm = this.tripViewModel();
       untracked(() => {
-        if (this.map && this.trip()) this.updateMapVisualization(vm);
+        if (this.mapService.map && this.trip()) {
+          this.mapService.updateMapVisualization(
+            vm,
+            this.places(),
+            this.usedPlaceIds(),
+            (place, items) => this.onPlaceMarkerClick(place, items),
+            (place) => this.markerRightClickFn(place),
+          );
+        }
       });
     });
 
     effect(() => {
       const data = this.highlightLayerData();
-
-      untracked(() => {
-        const activePlaceIds = data?.activePlaceIds || new Set<number>();
-        this.markers.forEach((marker: any, placeId) => {
-          const isHighlighted = activePlaceIds.has(placeId);
-          marker.isHighlightedPlace = isHighlighted;
-          const el = marker.getElement();
-          if (!el) return;
-
-          if (isHighlighted) el.classList.add('active-trip-place');
-          else el.classList.remove('active-trip-place');
-        });
-
-        if (this.tripMapAntLayer) {
-          this.map?.removeLayer(this.tripMapAntLayer);
-          this.tripMapAntLayer = undefined;
-        }
-
-        const mapContainer = this.map?.getContainer();
-        if (!data || !this.map) {
-          if (mapContainer) mapContainer.classList.remove('leaflet-tripday-pane-highlighting');
-          return;
-        }
-
-        if (mapContainer) mapContainer.classList.add('leaflet-tripday-pane-highlighting');
-
-        const layerGroup = L.featureGroup();
-        data.paths.forEach((p) => {
-          const polyline = L.polyline(p.coords, {
-            color: p.options.color,
-            weight: p.options.weight,
-            className: 'animated-path',
-            smoothFactor: 1.5,
-          });
-          layerGroup.addLayer(polyline);
-        });
-        data.markers.forEach((item) => {
-          const marker = tripDayMarker(item);
-          marker.on('add', (e: any) => e.target.getElement()?.classList.add('active-trip-marker'));
-          marker.on('click', () => {
-            if (this.selectedItem()?.id === item.id) {
-              this.selectedItem.set(null);
-              this.selectedPlace.set(null);
-              this.selectedDay.set(null);
-              return;
-            }
-            this.selectedItem.set(this.normalizeItem(item));
-            this.selectedPlace.set(null);
-            this.selectedDay.set(null);
-          });
-          layerGroup.addLayer(marker);
-        });
-        data.gpxData.forEach((gpx) => layerGroup.addLayer(gpxToPolyline(gpx)));
-
-        this.tripMapAntLayer = layerGroup;
-        requestAnimationFrame(() => {
-          if (this.tripMapAntLayer && this.map) {
-            this.tripMapAntLayer.addTo(this.map);
-            this.map.fitBounds(data.bounds, { padding: [30, 30], maxZoom: 16 });
-          }
-        });
-      });
+      untracked(() => this.mapService.applyHighlight(data, (item) => this.onHighlightItemClick(item)));
     });
 
     effect(() => {
@@ -638,23 +576,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
         } else this.selectedPanelHeight.set(0);
       });
 
-      untracked(() => {
-        this.clearSelectedItemHighlight();
-        this.clearItemGPX();
-        if (!this.map) return;
-        if (place) {
-          const existingMarker = this.markers.get(place.id);
-          if (existingMarker) this.highlightExistingMarker(existingMarker);
-          return;
-        } else if (item) {
-          const lat = item.lat;
-          const lng = item.lng;
-          if (lat && lng) {
-            this.selectedItemMarker = tripDayMarker(item);
-            this.selectedItemMarker.addTo(this.map);
-          }
-        }
-      });
+      untracked(() => this.mapService.showSelection(place, item));
     });
 
     const viewPrefs = this.utilsService.getTripViewPrefs();
@@ -688,33 +610,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    this.cleanupMap();
-  }
-
-  cleanupMap() {
-    if (this.tripMapAntLayer) {
-      this.map?.removeLayer(this.tripMapAntLayer);
-      this.tripMapAntLayer = undefined;
-    }
-
-    if (this.gpxLayerGroup) {
-      this.map?.removeLayer(this.gpxLayerGroup);
-      this.gpxLayerGroup = undefined;
-    }
-    this.displayedItemGpxId.set(null);
-
-    this.markers.forEach((marker) => marker.remove());
-    this.markers.clear();
-
-    if (this.markerClusterGroup) {
-      this.markerClusterGroup.clearLayers();
-      this.markerClusterGroup = undefined;
-    }
-
-    if (this.map) {
-      this.map.remove();
-      this.map = undefined;
-    }
+    this.mapService.cleanupMap();
   }
 
   getItemDayLabel(item: ViewTripItem): string {
@@ -735,7 +631,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
         next: ({ trip, settings, members }) => {
           this.trip.set(trip);
           this.tripMembers.set(members);
-          if (!this.map) this.initMap(settings);
+          if (!this.mapService.map) this.initMap(settings);
         },
         error: () => {
           this.utilsService.toast(
@@ -749,8 +645,6 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   initMap(settings: Settings) {
-    this.cleanupMap();
-
     const contextMenuItems = [
       {
         text: this.translocoService.translate('entities.item.add_poi'),
@@ -767,88 +661,40 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       },
     ];
 
-    this.map = createMap(contextMenuItems, settings.tile_layer);
-    this.markerClusterGroup = createClusterGroup().addTo(this.map);
-    this.map.setView([settings.map_lat, settings.map_lng]);
-    this.updateMapVisualization(this.tripViewModel());
-    this.resetMapBounds();
+    this.mapService.initMap({
+      contextMenuItems,
+      tileLayer: settings.tile_layer,
+      center: [settings.map_lat, settings.map_lng],
+      onCreated: () => {
+        this.mapService.updateMapVisualization(
+          this.tripViewModel(),
+          this.places(),
+          this.usedPlaceIds(),
+          (place, items) => this.onPlaceMarkerClick(place, items),
+          (place) => this.markerRightClickFn(place),
+        );
+        this.mapService.resetMapBounds(this.places(), this.tripViewModel());
+      },
+    });
   }
 
-  updateMapVisualization(viewModels: DayViewModel[]) {
-    if (!this.map || !this.markerClusterGroup) return;
-
-    this.markerClusterGroup.clearLayers();
-    this.markers.clear();
-
-    if (this.tripMapAntLayer) {
-      this.map.removeLayer(this.tripMapAntLayer);
-      this.tripMapAntLayer = undefined;
-    }
-
-    const usedIds = this.usedPlaceIds();
-    const allPlaces = this.places();
-    const markersToAdd: L.Marker[] = [];
-
-    const itemsByPlaceId = new Map<number, ViewTripItem[]>();
-    viewModels.forEach((vm) => {
-      vm.items.forEach((item) => {
-        if (item.place?.id) {
-          if (!itemsByPlaceId.has(item.place.id)) {
-            itemsByPlaceId.set(item.place.id, []);
-          }
-          itemsByPlaceId.get(item.place.id)!.push(item);
-        }
-      });
-    });
-
-    allPlaces.forEach((place) => {
-      const isUsed = usedIds.has(place.id);
-      const marker = placeToMarker(place, false, !isUsed, false, () => this.markerRightClickFn(place));
-      marker.on('add', (e: any) => {
-        const el = e.target.getElement();
-        if (el && e.target.isHighlightedPlace) el.classList.add('active-trip-place');
-      });
-
-      const itemsUsingPlace = itemsByPlaceId.get(place.id) || [];
-      marker.on('click', () => {
-        this.selectedPlace.set(place);
-        this.selectedItem.set(null);
-        this.selectedDay.set(null);
-        this.selectedPlaceActiveTabIndex.set(itemsUsingPlace.length > 0 ? itemsUsingPlace.length : 0);
-      });
-
-      this.markers.set(place.id, marker);
-      markersToAdd.push(marker);
-    });
-
-    if (markersToAdd.length) {
-      this.markerClusterGroup.addLayers(markersToAdd);
-    }
+  onPlaceMarkerClick(place: Place, itemsUsingPlace: ViewTripItem[]) {
+    this.selectedPlace.set(place);
+    this.selectedItem.set(null);
+    this.selectedDay.set(null);
+    this.selectedPlaceActiveTabIndex.set(itemsUsingPlace.length > 0 ? itemsUsingPlace.length : 0);
   }
 
-  resetMapBounds() {
-    const allPlaces = this.places();
-
-    if (!allPlaces.length) {
-      const trip = this.trip();
-      if (!trip?.days.length) return;
-
-      const itemsWithCoordinates = this.tripViewModel()
-        .flatMap((dayVM) => dayVM.items)
-        .filter((i) => i.lat != null && i.lng != null);
-
-      if (!itemsWithCoordinates.length) return;
-      this.map?.fitBounds(
-        itemsWithCoordinates.map((i) => [i.lat!, i.lng!]),
-        { padding: [15, 15] },
-      );
+  onHighlightItemClick(item: TripItem) {
+    if (this.selectedItem()?.id === item.id) {
+      this.selectedItem.set(null);
+      this.selectedPlace.set(null);
+      this.selectedDay.set(null);
       return;
     }
-
-    this.map?.fitBounds(
-      allPlaces.map((p) => [p.lat, p.lng]),
-      { padding: [15, 15] },
-    );
+    this.selectedItem.set(this.normalizeItem(item));
+    this.selectedPlace.set(null);
+    this.selectedDay.set(null);
   }
 
   normalizeItem(item: TripItem): ViewTripItem {
@@ -902,6 +748,12 @@ export class TripComponent implements AfterViewInit, OnDestroy {
             icon: 'pi pi-pencil',
             disabled: this.trip()!.archived,
             command: () => this.editItem(item),
+          },
+          {
+            label: this.translocoService.translate('common.actions.duplicate'),
+            icon: 'pi pi-copy',
+            disabled: this.trip()!.archived,
+            command: () => this.duplicateItem(item),
           },
           {
             label: this.translocoService.translate('common.actions.delete'),
@@ -1169,9 +1021,31 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       if (!data) return;
       this.printOptions.set(data);
       this.changeDetectionRef.detectChanges();
-      window.print();
-      this.printOptions.set(null);
+      this.waitForPrintImages().then(() => {
+        window.print();
+        this.printOptions.set(null);
+      });
     });
+  }
+
+  waitForPrintImages(timeoutMs = 3000): Promise<void> {
+    const pending = Array.from(document.querySelectorAll<HTMLImageElement>('#print-section img')).filter(
+      (img) => !img.complete,
+    );
+    if (!pending.length) return Promise.resolve();
+
+    const loaded = Promise.all(
+      pending.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            img.addEventListener('load', () => resolve(), { once: true });
+            img.addEventListener('error', () => resolve(), { once: true });
+          }),
+      ),
+    ).then(() => undefined);
+
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    return Promise.race([loaded, timeout]);
   }
 
   toggleFiltering() {
@@ -1231,6 +1105,10 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       else newIds.add(itemId);
       return newIds;
     });
+  }
+
+  toggleAllDaysCollapse() {
+    this.mapService.toggleAllDaysCollapse(this.tripViewModel().map((group) => group.day.id));
   }
 
   unlinkPlaceFromTrip(placeId: number) {
@@ -1422,95 +1300,13 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   onRowEnter(item: ViewTripItem) {
-    if (this.selectedPlace() || this.selectedItem()) return;
-    this.clearSelectedItemHighlight();
-
-    const placeId = item?.place?.id;
-    if (!placeId) return;
-
-    const marker = this.markers.get(placeId);
-    if (marker) this.highlightExistingMarker(marker);
+    if (this.hasSelection()) return;
+    this.mapService.onRowEnter(item);
   }
 
   onRowLeave() {
-    if (this.selectedPlace() || this.selectedItem()) return;
-    this.clearSelectedItemHighlight();
-  }
-
-  async centerOnMe() {
-    const position = await getGeolocationLatLng();
-    if (position.err) {
-      this.utilsService.toast('error', this.translocoService.translate('common.status.error'), position.err);
-      return;
-    }
-
-    const coords: any = [position.lat!, position.lng!];
-    this.map?.flyTo(coords);
-    const marker = toDotMarker(coords);
-    marker.addTo(this.map!);
-    setTimeout(() => {
-      marker.remove();
-    }, 4000);
-  }
-
-  highlightExistingMarker(marker: L.Marker) {
-    if (!this.markerClusterGroup) return;
-    const markerElement = marker.getElement() as HTMLElement;
-    if (markerElement) {
-      markerElement.classList.add('list-hover');
-      this.highlightedMarkerElement = markerElement;
-    } else {
-      const parentCluster = (this.markerClusterGroup as any).getVisibleParent(marker);
-      if (parentCluster) {
-        const clusterEl = parentCluster.getElement();
-        if (clusterEl) {
-          clusterEl.classList.add('list-hover');
-          this.highlightedMarkerElement = clusterEl;
-        }
-      }
-    }
-  }
-
-  clearSelectedItemHighlight() {
-    if (this.selectedItemMarker) {
-      this.map?.removeLayer(this.selectedItemMarker);
-      this.selectedItemMarker = undefined;
-    }
-
-    if (this.highlightedMarkerElement) {
-      this.highlightedMarkerElement.classList.remove('list-hover');
-      this.highlightedMarkerElement = undefined;
-    }
-  }
-
-  toggleItemGPX(item: ViewTripItem) {
-    if (!this.map || !item.gpx) return;
-
-    if (this.displayedItemGpxId() === item.id) {
-      this.clearItemGPX();
-      return;
-    }
-
-    if (!this.gpxLayerGroup) this.gpxLayerGroup = L.layerGroup().addTo(this.map);
-    this.gpxLayerGroup.clearLayers();
-
-    try {
-      const polyline = gpxToPolyline(item.gpx);
-      this.gpxLayerGroup.addLayer(polyline);
-      this.map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-      this.displayedItemGpxId.set(item.id);
-    } catch {
-      this.utilsService.toast(
-        'error',
-        this.translocoService.translate('common.status.error'),
-        this.translocoService.translate('messages.could_not_parse_gpx'),
-      );
-    }
-  }
-
-  clearItemGPX() {
-    this.gpxLayerGroup?.clearLayers();
-    this.displayedItemGpxId.set(null);
+    if (this.hasSelection()) return;
+    this.mapService.onRowLeave();
   }
 
   addItem(dayId?: number, placeId?: number) {
@@ -1630,7 +1426,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   onItemLinksChange(item: TripItem, links: string[]) {
-    const newLinks = links.length ? links : undefined;
+    const newLinks = links.length ? links : null;
     this.apiService
       .putTripDayItem({ links: newLinks }, this.trip()!.id, item.day_id, item.id)
       .subscribe((newItem) => this.applyUpdatedItem(item, newItem));
@@ -1687,13 +1483,35 @@ export class TripComponent implements AfterViewInit, OnDestroy {
           );
           return { ...current, days };
         });
-        if (this.displayedItemGpxId() === item.id) this.clearItemGPX();
+        if (this.mapService.displayedItemGpxId() === item.id) this.mapService.clearItemGPX();
         if (this.selectedItem()?.id === item.id) this.selectedItem.set(null);
         if (this.selectedPlace()?.id === item.place?.id) {
           const remainingItems = this.selectedPlaceItems().filter((i) => i.id !== item.id);
           if (remainingItems.length === 0) this.selectedPlaceActiveTabIndex.set(0);
         }
       });
+    });
+  }
+
+  duplicateItem(item: TripItem) {
+    const data: any = {
+      ...item,
+      status: item.status ? (item.status as TripStatus).label : null,
+      attachments: item.attachments ? item.attachments.map((a) => a.id) : [],
+      place: item.place ? item.place.id : null,
+      images: [],
+    };
+
+    this.apiService.postTripDayItem(data, this.trip()!.id, item.day_id).subscribe((newItem) => {
+      this.trip.update((current) => {
+        if (!current) return null;
+        const days = current.days.map((d) => (d.id === newItem.day_id ? { ...d, items: [...d.items, newItem] } : d));
+        return { ...current, days };
+      });
+
+      this.selectedItem.set(this.normalizeItem(newItem));
+      this.selectedPlace.set(null);
+      this.selectedDay.set(null);
     });
   }
 
@@ -1796,9 +1614,14 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       },
     })!;
 
-    modal.onClose.pipe(take(1)).subscribe((newDay: TripDay | null) => {
-      if (!newDay) return;
-      this.apiService.putTripDay(newDay, this.trip()!.id).subscribe((updated) => {
+    modal.onClose.pipe(take(1)).subscribe((data: TripDay | { delete: true } | null) => {
+      if (!data) return;
+      if ('delete' in data) {
+        this.deleteDay(day);
+        return;
+      }
+
+      this.apiService.putTripDay(data, this.trip()!.id).subscribe((updated) => {
         this.trip.update((t) => {
           if (!t) return null;
           const days = t.days
@@ -1988,6 +1811,10 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     return sharedSortBookings(bookings);
   }
 
+  bookingTitle(booking: TripBooking): string {
+    return [booking.label, booking.reference, booking.notes].filter(Boolean).join(' · ');
+  }
+
   addPlace(e?: any) {
     const opts = e ? { data: { place: e.latlng } } : {};
     const modal: DynamicDialogRef = this.dialogService.open(PlaceCreateModalComponent, {
@@ -2060,7 +1887,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   onSelectedPlaceLinksUpdated(place: Place, links: string[]) {
-    const newLinks = links.length ? links : undefined;
+    const newLinks = links.length ? links : null;
     this.apiService
       .putPlace(place.id, { links: newLinks })
       .pipe(take(1))
@@ -2172,14 +1999,126 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   openPackingList() {
-    this.apiService.getPackingList(this.trip()!.id).subscribe((items) => {
-      this.packingList.set(items);
-      this.isPackingDialogVisible = !this.isPackingDialogVisible;
-      this.computeMenuTripPackingItems();
+    const tripId = this.trip()!.id;
+    forkJoin([this.apiService.getPackingList(tripId), this.apiService.getPackingLists(tripId)]).subscribe(
+      ([items, lists]) => {
+        this.packingList.set(items);
+        this.packingLists.set(lists);
+        this.activePackingTab.set('default');
+        this.isPackingDialogVisible = !this.isPackingDialogVisible;
+        this.computeMenuTripPackingItems();
+      },
+    );
+  }
+
+  private sortPackingItems(items: PackingItem[]): Record<string, PackingItem[]> {
+    const sorted = [...items].sort((a, b) =>
+      a.packed !== b.packed ? (a.packed ? 1 : -1) : a.text.localeCompare(b.text),
+    );
+    return sorted.reduce<Record<string, PackingItem[]>>((acc, item) => {
+      (acc[item.category] ??= []).push(item);
+      return acc;
+    }, {});
+  }
+
+  dispPackingListFor(items: PackingItem[]): Record<string, PackingItem[]> {
+    return this.sortPackingItems(items);
+  }
+
+  private updatePackingItems(listId: number | null, updater: (items: PackingItem[]) => PackingItem[]) {
+    if (listId == null) this.packingList.update(updater);
+    else
+      this.packingLists.update((lists) => lists.map((l) => (l.id === listId ? { ...l, items: updater(l.items) } : l)));
+  }
+
+  private updateChecklistItems(listId: number | null, updater: (items: ChecklistItem[]) => ChecklistItem[]) {
+    if (listId == null) this.checklistItems.update(updater);
+    else this.checklists.update((lists) => lists.map((l) => (l.id === listId ? { ...l, items: updater(l.items) } : l)));
+  }
+
+  addPackingList() {
+    const modal: DynamicDialogRef = this.dialogService.open(TripListNameModalComponent, {
+      header: this.translocoService.translate('entities.packing_list.add'),
+      modal: true,
+      appendTo: 'body',
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (name: string | null) => {
+        if (!name) return;
+        this.apiService
+          .postPackingList(this.trip()!.id, name)
+          .pipe(take(1))
+          .subscribe({
+            next: (list) => {
+              this.packingLists.update((l) => [...l, list]);
+              this.activePackingTab.set(list.id);
+            },
+          });
+      },
     });
   }
 
-  computeMenuTripPackingItems() {
+  renamePackingList(list: PackingList) {
+    const modal: DynamicDialogRef = this.dialogService.open(TripListNameModalComponent, {
+      header: this.translocoService.translate('entities.packing_list.rename'),
+      modal: true,
+      appendTo: 'body',
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+      data: { name: list.name },
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (name: string | null) => {
+        if (!name) return;
+        this.apiService
+          .putPackingList(this.trip()!.id, list.id, name)
+          .pipe(take(1))
+          .subscribe({
+            next: (updated) => this.packingLists.update((l) => l.map((pl) => (pl.id === list.id ? updated : pl))),
+          });
+      },
+    });
+  }
+
+  deletePackingList(list: PackingList) {
+    const modal = this.dialogService.open(YesNoModalComponent, {
+      header: this.translocoService.translate('entities.packing_list.delete'),
+      modal: true,
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+      data: this.translocoService.translate('messages.delete_count', { count: list.name }),
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (bool) => {
+        if (!bool) return;
+        this.apiService
+          .deletePackingList(this.trip()!.id, list.id)
+          .pipe(take(1))
+          .subscribe({
+            next: () => {
+              this.packingLists.update((l) => l.filter((pl) => pl.id !== list.id));
+              if (this.activePackingTab() === list.id) this.activePackingTab.set('default');
+            },
+          });
+      },
+    });
+  }
+
+  computeMenuTripPackingItems(listId: number | null = null) {
     this.menuTripPackingItems = [
       {
         label: this.translocoService.translate('common.fields.actions'),
@@ -2187,19 +2126,19 @@ export class TripComponent implements AfterViewInit, OnDestroy {
           {
             label: this.translocoService.translate('clipboard.copy_to_clipboard'),
             icon: 'pi pi-clipboard',
-            command: () => this.copyPackingListToClipboard(),
+            command: () => this.copyPackingListToClipboard(listId),
           },
           {
             label: this.translocoService.translate('clipboard.quick_copy'),
             icon: 'pi pi-copy',
-            command: () => this.copyPackingListToService(),
+            command: () => this.copyPackingListToService(listId),
           },
           {
             label: this.translocoService.translate('clipboard.quick_paste', {
               count: this.utilsService.packingListToCopy.length,
             }),
             icon: 'pi pi-copy',
-            command: () => this.pastePackingList(),
+            command: () => this.pastePackingList(listId),
             disabled: this.trip()?.archived || !this.utilsService.packingListToCopy.length,
           },
         ],
@@ -2207,7 +2146,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     ];
   }
 
-  addPackingItem() {
+  addPackingItem(listId: number | null = null) {
     const modal: DynamicDialogRef = this.dialogService.open(TripCreatePackingModalComponent, {
       header: this.translocoService.translate('entities.item.add_packing'),
       modal: true,
@@ -2225,17 +2164,19 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       next: (item: PackingItem | null) => {
         if (!item) return;
 
-        this.apiService
-          .postPackingItem(this.trip()!.id, item)
-          .pipe(take(1))
-          .subscribe({
-            next: (item) => this.packingList.update((l) => [...l, item]),
-          });
+        const req$ =
+          listId == null
+            ? this.apiService.postPackingItem(this.trip()!.id, item)
+            : this.apiService.postPackingListItem(this.trip()!.id, listId, item);
+
+        req$.pipe(take(1)).subscribe({
+          next: (created) => this.updatePackingItems(listId, (items) => [...items, created]),
+        });
       },
     });
   }
 
-  editPackingItem(item: PackingItem) {
+  editPackingItem(item: PackingItem, listId: number | null = null) {
     const modal: DynamicDialogRef = this.dialogService.open(TripCreatePackingModalComponent, {
       header: this.translocoService.translate('entities.item.edit'),
       modal: true,
@@ -2251,12 +2192,15 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     modal.onClose.pipe(take(1)).subscribe({
       next: (updated: Partial<PackingItem> | null) => {
         if (!updated) return;
-        this.apiService
-          .putPackingItem(this.trip()!.id, item.id, updated)
-          .pipe(take(1))
-          .subscribe({
-            next: (saved) => this.packingList.update((l) => l.map((i) => (i.id === item.id ? saved : i))),
-          });
+
+        const req$ =
+          listId == null
+            ? this.apiService.putPackingItem(this.trip()!.id, item.id, updated)
+            : this.apiService.putPackingListItem(this.trip()!.id, listId, item.id, updated);
+
+        req$.pipe(take(1)).subscribe({
+          next: (saved) => this.updatePackingItems(listId, (items) => items.map((i) => (i.id === item.id ? saved : i))),
+        });
       },
     });
   }
@@ -2273,16 +2217,18 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       });
   }
 
-  onCheckPackingItem(e: CheckboxChangeEvent, id: number) {
-    this.apiService
-      .putPackingItem(this.trip()!.id, id, { packed: e.checked })
-      .pipe(take(1))
-      .subscribe({
-        next: (updated) => this.packingList.update((l) => l.map((i) => (i.id === id ? updated : i))),
-      });
+  onCheckPackingItem(e: CheckboxChangeEvent, id: number, listId: number | null = null) {
+    const req$ =
+      listId == null
+        ? this.apiService.putPackingItem(this.trip()!.id, id, { packed: e.checked })
+        : this.apiService.putPackingListItem(this.trip()!.id, listId, id, { packed: e.checked });
+
+    req$.pipe(take(1)).subscribe({
+      next: (updated) => this.updatePackingItems(listId, (items) => items.map((i) => (i.id === id ? updated : i))),
+    });
   }
 
-  deletePackingItem(item: PackingItem) {
+  deletePackingItem(item: PackingItem, listId: number | null = null) {
     const modal = this.dialogService.open(YesNoModalComponent, {
       header: this.translocoService.translate('entities.item.delete'),
       modal: true,
@@ -2299,18 +2245,25 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     modal.onClose.pipe(take(1)).subscribe({
       next: (bool) => {
         if (!bool) return;
-        this.apiService
-          .deletePackingItem(this.trip()!.id, item.id)
-          .pipe(take(1))
-          .subscribe({
-            next: () => this.packingList.update((l) => l.filter((i) => i.id !== item.id)),
-          });
+
+        const req$ =
+          listId == null
+            ? this.apiService.deletePackingItem(this.trip()!.id, item.id)
+            : this.apiService.deletePackingListItem(this.trip()!.id, listId, item.id);
+
+        req$.pipe(take(1)).subscribe({
+          next: () => this.updatePackingItems(listId, (items) => items.filter((i) => i.id !== item.id)),
+        });
       },
     });
   }
 
-  copyPackingListToClipboard() {
-    const content = this.packingList()
+  private getPackingItemsFor(listId: number | null): PackingItem[] {
+    return listId == null ? this.packingList() : (this.packingLists().find((l) => l.id === listId)?.items ?? []);
+  }
+
+  copyPackingListToClipboard(listId: number | null = null) {
+    const content = this.getPackingItemsFor(listId)
       .sort((a, b) =>
         a.category !== b.category
           ? a.category.localeCompare(b.category)
@@ -2337,8 +2290,8 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       );
   }
 
-  copyPackingListToService() {
-    const content: Partial<PackingItem>[] = this.packingList().map((item) => ({
+  copyPackingListToService(listId: number | null = null) {
+    const content: Partial<PackingItem>[] = this.getPackingItemsFor(listId).map((item) => ({
       qt: item.qt,
       text: item.text,
       category: item.category,
@@ -2351,7 +2304,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     );
   }
 
-  pastePackingList() {
+  pastePackingList(listId: number | null = null) {
     const content: Partial<PackingItem>[] = this.utilsService.packingListToCopy;
     const modal = this.dialogService.open(YesNoModalComponent, {
       header: this.translocoService.translate('clipboard.confirm_paste'),
@@ -2371,14 +2324,16 @@ export class TripComponent implements AfterViewInit, OnDestroy {
         if (!bool) return;
 
         const obs$ = content.map((packingItem) =>
-          this.apiService.postPackingItem(this.trip()!.id, packingItem as PackingItem),
+          listId == null
+            ? this.apiService.postPackingItem(this.trip()!.id, packingItem as PackingItem)
+            : this.apiService.postPackingListItem(this.trip()!.id, listId, packingItem as PackingItem),
         );
 
         forkJoin(obs$)
           .pipe(take(1))
           .subscribe({
             next: (newItems: PackingItem[]) => {
-              this.packingList.update((l) => [...l, ...newItems]);
+              this.updatePackingItems(listId, (items) => [...items, ...newItems]);
               this.utilsService.packingListToCopy = [];
               this.utilsService.toast(
                 'success',
@@ -2392,13 +2347,112 @@ export class TripComponent implements AfterViewInit, OnDestroy {
   }
 
   openChecklist() {
-    this.apiService.getChecklist(this.trip()!.id).subscribe((items) => {
-      this.checklistItems.set(items);
-      this.isChecklistDialogVisible = !this.isChecklistDialogVisible;
+    const tripId = this.trip()!.id;
+    forkJoin([this.apiService.getChecklist(tripId), this.apiService.getChecklists(tripId)]).subscribe(
+      ([items, checklists]) => {
+        this.checklistItems.set(items);
+        this.checklists.set(checklists);
+        this.activeChecklistTab.set('default');
+        this.isChecklistDialogVisible = !this.isChecklistDialogVisible;
+      },
+    );
+  }
+
+  groupedChecklist(items: ChecklistItem[]): ChecklistGroup[] {
+    return groupChecklistItems(items);
+  }
+
+  checklistProgress(items: ChecklistItem[]): { done: number; total: number; pct: number } {
+    return sharedChecklistProgress(items);
+  }
+
+  isOverdueReminder(item: ChecklistItem): boolean {
+    return sharedIsOverdueReminder(item);
+  }
+
+  addChecklist() {
+    const modal: DynamicDialogRef = this.dialogService.open(TripListNameModalComponent, {
+      header: this.translocoService.translate('entities.checklist.add'),
+      modal: true,
+      appendTo: 'body',
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (name: string | null) => {
+        if (!name) return;
+        this.apiService
+          .postChecklist(this.trip()!.id, name)
+          .pipe(take(1))
+          .subscribe({
+            next: (checklist) => {
+              this.checklists.update((l) => [...l, checklist]);
+              this.activeChecklistTab.set(checklist.id);
+            },
+          });
+      },
     });
   }
 
-  addChecklistItem() {
+  renameChecklist(checklist: ChecklistList) {
+    const modal: DynamicDialogRef = this.dialogService.open(TripListNameModalComponent, {
+      header: this.translocoService.translate('entities.checklist.rename'),
+      modal: true,
+      appendTo: 'body',
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+      data: { name: checklist.name },
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (name: string | null) => {
+        if (!name) return;
+        this.apiService
+          .putChecklist(this.trip()!.id, checklist.id, name)
+          .pipe(take(1))
+          .subscribe({
+            next: (updated) => this.checklists.update((l) => l.map((cl) => (cl.id === checklist.id ? updated : cl))),
+          });
+      },
+    });
+  }
+
+  deleteChecklist(checklist: ChecklistList) {
+    const modal = this.dialogService.open(YesNoModalComponent, {
+      header: this.translocoService.translate('entities.checklist.delete'),
+      modal: true,
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: { '640px': '90vw' },
+      data: this.translocoService.translate('messages.delete_count', { count: checklist.name }),
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (bool) => {
+        if (!bool) return;
+        this.apiService
+          .deleteChecklist(this.trip()!.id, checklist.id)
+          .pipe(take(1))
+          .subscribe({
+            next: () => {
+              this.checklists.update((l) => l.filter((cl) => cl.id !== checklist.id));
+              if (this.activeChecklistTab() === checklist.id) this.activeChecklistTab.set('default');
+            },
+          });
+      },
+    });
+  }
+
+  addChecklistItem(listId: number | null = null) {
     const modal: DynamicDialogRef = this.dialogService.open(TripCreateChecklistModalComponent, {
       header: this.translocoService.translate('entities.item.add_checklist'),
       modal: true,
@@ -2416,26 +2470,30 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       next: (item: ChecklistItem | null) => {
         if (!item) return;
 
-        this.apiService
-          .postChecklistItem(this.trip()!.id, item)
-          .pipe(take(1))
-          .subscribe({
-            next: (created) => this.checklistItems.update((l) => [...l, created]),
-          });
+        const req$ =
+          listId == null
+            ? this.apiService.postChecklistItem(this.trip()!.id, item)
+            : this.apiService.postChecklistListItem(this.trip()!.id, listId, item);
+
+        req$.pipe(take(1)).subscribe({
+          next: (created) => this.updateChecklistItems(listId, (items) => [...items, created]),
+        });
       },
     });
   }
 
-  onCheckChecklistItem(e: CheckboxChangeEvent, id: number) {
-    this.apiService
-      .putChecklistItem(this.trip()!.id, id, { checked: e.checked })
-      .pipe(take(1))
-      .subscribe({
-        next: (updated) => this.checklistItems.update((l) => l.map((i) => (i.id === id ? updated : i))),
-      });
+  onCheckChecklistItem(e: CheckboxChangeEvent, id: number, listId: number | null = null) {
+    const req$ =
+      listId == null
+        ? this.apiService.putChecklistItem(this.trip()!.id, id, { checked: e.checked })
+        : this.apiService.putChecklistListItem(this.trip()!.id, listId, id, { checked: e.checked });
+
+    req$.pipe(take(1)).subscribe({
+      next: (updated) => this.updateChecklistItems(listId, (items) => items.map((i) => (i.id === id ? updated : i))),
+    });
   }
 
-  deleteChecklistItem(item: ChecklistItem) {
+  deleteChecklistItem(item: ChecklistItem, listId: number | null = null) {
     const modal = this.dialogService.open(YesNoModalComponent, {
       header: this.translocoService.translate('entities.item.delete'),
       modal: true,
@@ -2452,12 +2510,53 @@ export class TripComponent implements AfterViewInit, OnDestroy {
     modal.onClose.pipe(take(1)).subscribe({
       next: (bool) => {
         if (!bool) return;
-        this.apiService
-          .deleteChecklistItem(this.trip()!.id, item.id)
-          .pipe(take(1))
-          .subscribe({
-            next: () => this.checklistItems.update((l) => l.filter((i) => i.id !== item.id)),
-          });
+
+        const req$ =
+          listId == null
+            ? this.apiService.deleteChecklistItem(this.trip()!.id, item.id)
+            : this.apiService.deleteChecklistListItem(this.trip()!.id, listId, item.id);
+
+        req$.pipe(take(1)).subscribe({
+          next: () => this.updateChecklistItems(listId, (items) => items.filter((i) => i.id !== item.id)),
+        });
+      },
+    });
+  }
+
+  editChecklistItem(item: ChecklistItem, listId: number | null = null) {
+    const modal: DynamicDialogRef = this.dialogService.open(TripCreateChecklistModalComponent, {
+      header: this.translocoService.translate('entities.item.edit'),
+      modal: true,
+      appendTo: 'body',
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: {
+        '640px': '90vw',
+      },
+      data: { packing: item },
+    })!;
+
+    modal.onClose.pipe(take(1)).subscribe({
+      next: (updated: ChecklistItem | null) => {
+        if (!updated) return;
+
+        const req$ =
+          listId == null
+            ? this.apiService.putChecklistItem(this.trip()!.id, item.id, {
+                text: updated.text,
+                notify_dt: updated.notify_dt,
+              })
+            : this.apiService.putChecklistListItem(this.trip()!.id, listId, item.id, {
+                text: updated.text,
+                notify_dt: updated.notify_dt,
+              });
+
+        req$.pipe(take(1)).subscribe({
+          next: (result) =>
+            this.updateChecklistItems(listId, (items) => items.map((i) => (i.id === item.id ? result : i))),
+        });
       },
     });
   }
@@ -3234,10 +3333,10 @@ export class TripComponent implements AfterViewInit, OnDestroy {
       layerGroup.addLayer(marker);
     });
 
-    this.tripMapAntLayer = layerGroup;
+    this.mapService.tripMapAntLayer = layerGroup;
     requestAnimationFrame(() => {
-      if (!this.tripMapAntLayer || !this.map) return;
-      this.tripMapAntLayer.addTo(this.map);
+      if (!this.mapService.tripMapAntLayer || !this.mapService.map) return;
+      this.mapService.tripMapAntLayer.addTo(this.mapService.map);
     });
 
     let completedRoutes = 0;
@@ -3271,7 +3370,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
               profile,
             });
 
-            const currentMap = this.map;
+            const currentMap = this.mapService.map;
             if (currentMap) layer.addTo(currentMap);
           },
           error: (err) => {
@@ -3290,21 +3389,25 @@ export class TripComponent implements AfterViewInit, OnDestroy {
 
   flyTo(latlng?: [number, number]) {
     const selected = this.selectedItem() || this.selectedPlace();
-    if (!this.map || (!latlng && (!selected || !selected.lat || !selected.lng))) return;
+    if (!this.mapService.map || (!latlng && (!selected || !selected.lat || !selected.lng))) return;
 
     const lat: number = latlng ? latlng[0] : selected!.lat!;
     const lng: number = latlng ? latlng[1] : selected!.lng!;
-    this.map.flyTo([lat, lng], this.map.getZoom() || 9, { duration: 2 });
+    this.mapService.map.flyTo([lat, lng], this.mapService.map.getZoom() || 9, { duration: 2 });
   }
 
   markerRightClickFn(to: Place) {
-    if (this.selectedItem() || this.selectedPlace()) return this.markerToMarkerRouting(to);
+    const item = this.selectedItem();
+    const from = (item?.lat ? item : item?.place) ?? this.selectedPlace();
+    const fromPlaceId = item ? item.place?.id : from?.id;
+    const hasCoords = !!from?.lat && !!from?.lng;
+    const sameSpot = fromPlaceId === to.id || (from?.lat === to.lat && from?.lng === to.lng);
+    if (from && hasCoords && !sameSpot) return this.markerToMarkerRouting(from, to);
     return this.addItem(undefined, to.id);
   }
 
-  markerToMarkerRouting(to: Place) {
-    const from = this.selectedItem() || this.selectedPlace();
-    if (!from || !from.lat || !from.lng) return;
+  markerToMarkerRouting(from: ViewTripItem | Place, to: Place) {
+    if (!from.lat || !from.lng) return;
 
     const profile = this.routeManager.getProfile([from.lat, from.lng], [to.lat, to.lng]);
     this.utilsService.setLoading(this.translocoService.translate('routing.calculating'));
@@ -3326,7 +3429,7 @@ export class TripComponent implements AfterViewInit, OnDestroy {
             duration: resp.duration ?? 0,
             profile,
           });
-          const currentMap = this.map;
+          const currentMap = this.mapService.map;
           if (currentMap) layer.addTo(currentMap);
         },
         error: (err) => {

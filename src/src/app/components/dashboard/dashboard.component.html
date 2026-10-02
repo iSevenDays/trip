@@ -307,7 +307,7 @@
             </div>
 
             <div class="relative">
-              <i class="pi pi-google absolute left-3 top-1/2 -translate-y-1/2 text-primary-400 text-xs"></i>
+              <i class="pi pi-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-primary-400 text-xs"></i>
               <input type="text" [formControl]="geocodeFilterInput" (keydown.enter)="geocodeFilter()"
                 [placeholder]="t('modals.places.search.geocode_placeholder')"
                 class="w-full h-9 pl-9 pr-3 bg-white dark:bg-primary-950 border border-primary-200 dark:border-primary-800 rounded-lg text-sm text-primary-900 dark:text-white placeholder:text-primary-400 focus:outline-none focus:border-blue-500 dark:focus:border-blue-400 transition-colors" />
@@ -499,7 +499,13 @@
                 </div>
 
                 <div
-                  class="mt-6 flex gap-2 justify-center items-center text-sm font-medium text-primary-500 dark:text-primary-400">
+                  class="mt-6 flex gap-1.5 justify-center items-center text-sm font-medium text-primary-500 dark:text-primary-400">
+                  <i class="pi pi-user text-sm!"></i>
+                  <span>{{ settings()?.username }}</span>
+                </div>
+
+                <div
+                  class="mt-2 flex gap-2 justify-center items-center text-sm font-medium text-primary-500 dark:text-primary-400">
                   <span>{{ t('settings.made_with') }}</span>
                   &middot;
                   <span class="cursor-pointer" (click)="toGithub()"><i class="pi pi-github text-sm!"></i> TRIP</span>
@@ -661,6 +667,33 @@
                         <p-button [icon]="settings()?.api_token ? 'pi pi-times-circle' : 'pi pi-check-circle'"
                           (click)="toggleTripApiToken()" [severity]="settings()?.api_token ? 'danger' : 'success'"
                           size="small" [label]="settings()?.api_token ? 'Disable' : 'Enable'" text />
+                      </div>
+
+                      <div
+                        class="flex items-center justify-between py-3 px-4 rounded-lg bg-primary-50 dark:bg-black/50 border border-primary-100 dark:border-primary-700">
+                        <div class="flex items-center gap-3 min-w-0 flex-1">
+                          <i class="pi pi-bell shrink-0" [class]="
+                                settings()?.apprise_webhook_url
+                                  ? 'text-green-600 dark:text-green-400'
+                                  : 'text-red-600 dark:text-red-400'
+                              "></i>
+                          <div class="min-w-0">
+                            <span class="font-medium text-sm text-primary-900 dark:text-primary-100 block">{{
+                              t('settings.apprise_webhook') }}</span>
+                            <p class="text-xs text-primary-500 dark:text-primary-400 hidden lg:block">{{
+                              t('settings.apprise_webhook_desc') }}</p>
+                          </div>
+                        </div>
+
+                        @if (settings()?.apprise_webhook_url) {
+                        <p-button (click)="deleteAppriseWebhook()" icon="pi pi-trash"
+                          [label]="t('common.actions.remove')" severity="danger" text size="small" />
+                        } @else {
+                        <div [formGroup]="settingsForm" class="w-40">
+                          <input id="_apprise_webhook_url" type="text" formControlName="_apprise_webhook_url" pInputText
+                            fluid pSize="small" placeholder="discord://..." />
+                        </div>
+                        }
                       </div>
                     </div>
                     }
@@ -830,6 +863,21 @@
                           </div>
                         </div>
                         <p-toggleswitch [(ngModel)]="isDogTagMode" (onChange)="toggleDogTagMode()"
+                          class="shrink-0 ml-4" />
+                      </div>
+
+                      <div
+                        class="flex items-center justify-between py-3 px-4 rounded-lg bg-primary-50 dark:bg-black/50 border border-primary-100 dark:border-primary-700">
+                        <div class="flex items-center gap-3 min-w-0 flex-1">
+                          <i class="pi pi-link text-emerald-600 dark:text-emerald-400 shrink-0"></i>
+                          <div class="min-w-0">
+                            <span class="font-medium text-sm text-primary-900 dark:text-primary-100 block">{{
+                              t('settings.link_titles') }}</span>
+                            <p class="text-xs text-primary-500 dark:text-primary-400 hidden lg:block">{{
+                              t('settings.link_titles_desc') }}</p>
+                          </div>
+                        </div>
+                        <p-toggleswitch [(ngModel)]="isFetchLinkTitlesMode" (onChange)="toggleFetchLinkTitles()"
                           class="shrink-0 ml-4" />
                       </div>
                     </div>
@@ -1130,6 +1178,7 @@
       <div
         class="flex-none flex items-center justify-between gap-4 p-4 md:p-6 border-b border-primary-200 dark:border-primary-800 bg-linear-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/10">
         <div class="flex items-center gap-3 min-w-0">
+          <p-button (click)="viewAdmin.set(false); toggleSettings()" text severity="secondary" icon="pi pi-arrow-left" />
           <div
             class="flex shrink-0 items-center justify-center size-9 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800">
             <i class="pi pi-shield text-red-600 dark:text-red-400 text-sm"></i>
@@ -1403,6 +1452,22 @@
                     <div
                       class="flex flex-col gap-2 md:flex-row md:items-center justify-between py-3 px-4 rounded-lg bg-primary-50 dark:bg-black/30 border border-primary-100 dark:border-primary-700">
                       <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <i class="pi pi-map text-amber-600 dark:text-amber-400 shrink-0"></i>
+                        <div class="min-w-0">
+                          <span class="text-sm font-medium text-primary-900 dark:text-primary-100 block">{{
+                            t('settings.photon_url') }}</span>
+                          <p class="text-xs text-primary-500 dark:text-primary-400 hidden lg:block">{{
+                            t('settings.photon_url_desc') }}</p>
+                        </div>
+                      </div>
+                      <div class="w-full md:w-68">
+                        <input pInputText formControlName="PHOTON_URL" pSize="small" fluid />
+                      </div>
+                    </div>
+
+                    <div
+                      class="flex flex-col gap-2 md:flex-row md:items-center justify-between py-3 px-4 rounded-lg bg-primary-50 dark:bg-black/30 border border-primary-100 dark:border-primary-700">
+                      <div class="flex items-center gap-3 min-w-0 flex-1">
                         <i class="pi pi-map text-blue-600 dark:text-blue-400 shrink-0"></i>
                         <div class="min-w-0">
                           <span class="text-sm font-medium text-primary-900 dark:text-primary-100 block">{{
@@ -1452,8 +1517,8 @@
                         </div>
                       </div>
                       <div class="w-full md:w-68">
-                        <p-inputnumber formControlName="ATTACHMENT_MAX_SIZE" [min]="1" [max]="500" pSize="small" fluid
-                          [showButtons]="false" />
+                        <input formControlName="ATTACHMENT_MAX_SIZE" pInputText appNumber [min]="1" [max]="500"
+                          pSize="small" fluid />
                       </div>
                     </div>
 
@@ -1471,10 +1536,10 @@
                         </div>
                       </div>
                       <div class="w-full md:w-68 grid grid-cols-2 gap-2">
-                        <p-inputnumber formControlName="PLACE_IMAGE_SIZE" [min]="100" [max]="4096"
-                          [placeholder]="t('common.fields.places')" pSize="small" fluid [showButtons]="false" />
-                        <p-inputnumber formControlName="TRIP_IMAGE_SIZE" [min]="100" [max]="4096"
-                          [placeholder]="t('common.fields.trips')" pSize="small" fluid [showButtons]="false" />
+                        <input formControlName="PLACE_IMAGE_SIZE" pInputText appNumber [min]="100" [max]="4096"
+                          [placeholder]="t('common.fields.places')" pSize="small" fluid />
+                        <input formControlName="TRIP_IMAGE_SIZE" pInputText appNumber [min]="100" [max]="4096"
+                          [placeholder]="t('common.fields.trips')" pSize="small" fluid />
                       </div>
                     </div>
 
@@ -1492,10 +1557,10 @@
                         </div>
                       </div>
                       <div class="w-full md:w-68 grid grid-cols-2 gap-2">
-                        <p-inputnumber formControlName="BACKUP_IMPORT_MAX_ENTRY_SIZE" [min]="1"
-                          [placeholder]="t('settings.backup_entry_size')" pSize="small" fluid [showButtons]="false" />
-                        <p-inputnumber formControlName="BACKUP_IMPORT_MAX_TOTAL_SIZE" [min]="1"
-                          [placeholder]="t('settings.backup_total_size')" pSize="small" fluid [showButtons]="false" />
+                        <input formControlName="BACKUP_IMPORT_MAX_ENTRY_SIZE" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.backup_entry_size')" pSize="small" fluid />
+                        <input formControlName="BACKUP_IMPORT_MAX_TOTAL_SIZE" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.backup_total_size')" pSize="small" fluid />
                       </div>
                     </div>
 
@@ -1513,11 +1578,10 @@
                         </div>
                       </div>
                       <div class="w-full md:w-68 grid grid-cols-2 gap-2">
-                        <p-inputnumber formControlName="KML_MAX_ENTRY_SIZE" [min]="1"
-                          [placeholder]="t('settings.kml_max_size')" pSize="small" fluid [showButtons]="false" />
-                        <p-inputnumber formControlName="PROVIDER_IMPORT_MAX_SIZE" [min]="1"
-                          [placeholder]="t('settings.provider_import_size')" pSize="small" fluid
-                          [showButtons]="false" />
+                        <input formControlName="KML_MAX_ENTRY_SIZE" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.kml_max_size')" pSize="small" fluid />
+                        <input formControlName="PROVIDER_IMPORT_MAX_SIZE" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.provider_import_size')" pSize="small" fluid />
                       </div>
                     </div>
                   </div>
@@ -1539,10 +1603,10 @@
                         </div>
                       </div>
                       <div class="w-full md:w-68 grid grid-cols-2 gap-2">
-                        <p-inputnumber formControlName="ACCESS_TOKEN_EXPIRE_MINUTES" [min]="1"
-                          [placeholder]="t('settings.access')" pSize="small" fluid [showButtons]="false" />
-                        <p-inputnumber formControlName="REFRESH_TOKEN_EXPIRE_MINUTES" [min]="1"
-                          [placeholder]="t('settings.refresh')" pSize="small" fluid [showButtons]="false" />
+                        <input formControlName="ACCESS_TOKEN_EXPIRE_MINUTES" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.access')" pSize="small" fluid />
+                        <input formControlName="REFRESH_TOKEN_EXPIRE_MINUTES" pInputText appNumber [min]="1"
+                          [placeholder]="t('settings.refresh')" pSize="small" fluid />
                       </div>
                     </div>
 

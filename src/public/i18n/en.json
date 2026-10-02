@@ -26,6 +26,7 @@
     "delete": "Delete",
     "edit": "Edit",
     "label": "Label",
+    "markdown_hint": "Markdown supported",
     "new_booking": "New booking",
     "notes": "Notes",
     "reference": "Reference",
@@ -121,6 +122,7 @@
       "date_range": "Date Range",
       "day": "Day",
       "days": "Days",
+      "default": "Default",
       "description": "Description",
       "distance": "Distance",
       "gpx": "GPX",
@@ -195,6 +197,7 @@
     "mins": "{{count}} mins"
   },
   "empty_states": {
+    "checklist_empty": "Your checklist is empty",
     "every_place_used": "Every place is used",
     "no_attachments": "No attachments",
     "no_days": "No days",
@@ -215,6 +218,17 @@
       "delete_desc": "Delete attachment? This cannot be undone.",
       "download_all": "Download all"
     },
+    "checklist": {
+      "add": "New Checklist",
+      "delete": "Delete Checklist",
+      "rename": "Rename Checklist",
+      "groups": {
+        "week": "Till end of this week",
+        "month": "This month",
+        "year": "This year and later",
+        "undated": "No date"
+      }
+    },
     "day": {
       "add": "Add Day(s)",
       "delete": "Delete Day",
@@ -227,7 +241,8 @@
       "add_packing": "Add Packing",
       "add_poi": "Add Point of Interest",
       "delete": "Delete Item",
-      "edit": "Edit Item"
+      "edit": "Edit Item",
+      "notify_dt": "Notify at"
     },
     "link": {
       "delete": "Delete Link",
@@ -238,6 +253,11 @@
       "delete_desc": "Delete {{name}} from Trip ?",
       "invite": "Invite Member",
       "remove": "Remove Member"
+    },
+    "packing_list": {
+      "add": "New Packing List",
+      "delete": "Delete Packing List",
+      "rename": "Rename Packing List"
     },
     "place": {
       "attached": "Attached Places",
@@ -255,6 +275,7 @@
       "add": "Add Plan",
       "create_using_place": "Create Plan using this Place",
       "delete": "Delete Plan",
+      "duplicate": "Duplicate Plan",
       "edit": "Edit Plan",
       "multiselect": "Multi-Select plans",
       "multiselect_exit": "Exit Multi-Select",
@@ -301,6 +322,7 @@
     "delete_plans_count": "Delete {{count}} plan(s)? This cannot be undone.",
     "delete_user_failed": "Failed to delete user",
     "duplicate_count": "Duplicate {{count}} plan(s)?",
+    "error_deleting_apprise_webhook": "Error deleting Apprise webhook",
     "error_deleting_gapi": "Error deleting GMaps API key",
     "error_disabling": "Error disabling TOTP",
     "error_totp": "Error enabling TOTP",
@@ -487,6 +509,11 @@
         "description": "Include places recap",
         "title": "Places recap"
       },
+      "places_detailed": {
+        "description": "Show full place details (address, coordinates, price, description, links...). May significantly increase the number of printed pages.",
+        "gpx_attached": "GPX track attached",
+        "title": "Detailed places recap"
+      },
       "properties": {
         "description": "Fields to include",
         "selected": "{0} properties selected",
@@ -551,6 +578,8 @@
     "always_display_visited_desc": "Always display visited places as small dots",
     "api_key": "TRIP API Key",
     "api_key_desc": "Use it to authenticate in scripts",
+    "apprise_webhook": "Apprise Webhook",
+    "apprise_webhook_desc": "Get notified on scheduled checklist items via an Apprise URL",
     "attachments_max_size": "Attachments max size (MB)",
     "authentication": "Authentication",
     "backup_entry_size": "Per-file",
@@ -574,6 +603,7 @@
     "default_lng": "Default Longitude",
     "default_map_tile": "Default map tile layer",
     "defaults": "Defaults",
+    "delete_apprise_webhook": "Are you sure you want to delete the Apprise Webhook ?",
     "delete_gapi_key": "Are you sure you want to delete GMaps API Key ?",
     "delete_user": "Delete user",
     "delete_user_message": "Permanently delete {{name}} and all their data? This cannot be undone.",
@@ -584,6 +614,8 @@
     "documentation_desc": "Learn how to use TRIP",
     "dog_tag": "Dog-Friendly Tag",
     "dog_tag_desc": "Show the dog-friendly indicator on places and the filter chip",
+    "link_titles": "Link Titles",
+    "link_titles_desc": "Fetch and display each link's page title instead of its raw URL",
     "duplicate_dist": "Duplicate distance threshold",
     "duplicate_dist_desc": "Control how closely strings must match. Higher values accept more differences; 0 to disable",
     "encode_map_position": "Store Map Position and Place",
@@ -626,6 +658,8 @@
     "oidc_discovery_url": "Discovery URL",
     "oidc_redirect_uri": "Redirect URI",
     "open_registration": "Open Registration",
+    "photon_url": "Photon URL",
+    "photon_url_desc": "Default Photon geocoding endpoint",
     "preferences": "Preferences",
     "processing": "Processing...",
     "provider": "Map Provider",
@@ -690,11 +724,17 @@
   "trips": {
     "day": "day",
     "days": "days",
-    "invitations": {
-      "empty": "No pending invitations.",
-      "invited_you": "invited you to collaborate.",
-      "on": "On",
-      "title": "Invitations"
+    "notifications": {
+      "checklist": {
+        "title": "Checklist reminders",
+        "triggered": "Triggered"
+      },
+      "empty": "You're all caught up.",
+      "invitations": {
+        "invited_you": "invited you to collaborate.",
+        "on": "On"
+      },
+      "title": "Notifications"
     },
     "roles": {
       "invited": "Invited",
@@ -707,9 +747,13 @@
     "archival_notes": "Archival notes",
     "attachments_count": "Attachments ({{count}})",
     "center_location": "Center on my location",
+    "collapse_all_days": "Collapse all days",
+    "collapse_day": "Collapse day",
     "distance_from_previous": "{{distance}}km from previous",
     "distance_km": "{{distance}} km",
     "drag_resize": "Drag to resize. Double click to reset.",
+    "expand_all_days": "Expand all days",
+    "expand_day": "Expand day",
     "off_show_bookings": "Bookings Hidden",
     "off_show_day_notes": "Day Notes Hidden",
     "off_show_text": "Show Place",

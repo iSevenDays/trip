@@ -71,6 +71,7 @@
       "date_range": "Datumbereik",
       "day": "Dag",
       "days": "Dagen",
+      "default": "Standaard",
       "description": "Beschrijving",
       "distance": "Afstand",
       "gpx": "GPX",
@@ -173,6 +174,9 @@
     "google_api_desc": "Verbind je Google API-sleutel voor uitgebreide locatieservices",
     "manage_api_keys": "API-sleutels beheren",
     "delete_gapi_key": "Weet je zeker dat je de GMaps API-sleutel wilt verwijderen?",
+    "apprise_webhook": "Apprise Webhook",
+    "apprise_webhook_desc": "Ontvang meldingen voor geplande checklist-items via een Apprise-URL",
+    "delete_apprise_webhook": "Weet je zeker dat je de Apprise webhook wilt verwijderen?",
     "map_parameters": "Kaartparameters",
     "map_parameters_desc": "Configureer standaard kaartweergave en tegellagen",
     "default_lat": "Standaard breedtegraad",
@@ -191,6 +195,8 @@
     "encode_map_position_desc": "Codeer kaartpositie en geselecteerde locatie in de URL om dezelfde weergave te herstellen na vernieuwen",
     "dog_tag": "Hondvriendelijk-label",
     "dog_tag_desc": "Toon de hondvriendelijke indicator op locaties en de filterchip",
+    "link_titles": "Linktitels",
+    "link_titles_desc": "Haal de paginatitel van elke link op en toon deze in plaats van de ruwe URL",
     "always_display_visited": "Bezochte locaties tonen",
     "always_display_visited_desc": "Toon bezochte locaties altijd als kleine puntjes",
     "currency_desc": "Werk de standaardvaluta bij",
@@ -223,6 +229,8 @@
     "registration": "Registratie",
     "open_registration": "Open registratie",
     "tile": "Tegel-URL",
+    "photon_url": "Photon-URL",
+    "photon_url_desc": "Standaard Photon geocoding-eindpunt",
     "allow_registration": "Sta gebruikers toe zichzelf te registreren",
     "map_center": "Kaartcentrum",
     "map_center_desc": "Standaard breedte- & lengtegraad",
@@ -263,11 +271,17 @@
     "title": "Trips",
     "day": "dag",
     "days": "dagen",
-    "invitations": {
-      "title": "Uitnodigingen",
-      "on": "Op",
-      "invited_you": "heeft je uitgenodigd om samen te werken.",
-      "empty": "Geen openstaande uitnodigingen."
+    "notifications": {
+      "title": "Meldingen",
+      "invitations": {
+        "on": "Op",
+        "invited_you": "heeft je uitgenodigd om samen te werken."
+      },
+      "checklist": {
+        "title": "Checklistherinneringen",
+        "triggered": "Geactiveerd"
+      },
+      "empty": "Je bent helemaal bij."
     },
     "roles": {
       "owner": "Eigenaar",
@@ -287,6 +301,7 @@
     "upload_new": "Nieuwe uploaden",
     "type": "Type",
     "label": "Label",
+    "markdown_hint": "Markdown ondersteund",
     "reference": "Referentie",
     "notes": "Notities",
     "save": "Opslaan",
@@ -363,6 +378,7 @@
     "password_updated": "Wachtwoord bijgewerkt",
     "password_error": "Kon wachtwoord niet bijwerken. Controleer of het huidige wachtwoord juist is.",
     "error_deleting_gapi": "Fout bij verwijderen GMaps API-sleutel",
+    "error_deleting_apprise_webhook": "Fout bij verwijderen Apprise webhook",
     "unsupported_file": "Niet-ondersteund bestand",
     "expected_csv": ".csv-bestand verwacht",
     "querying_gmaps": "Bezig met opvragen Google Maps API",
@@ -414,6 +430,7 @@
     "ready_to_paste": "Klaar om te plakken"
   },
   "empty_states": {
+    "checklist_empty": "Je checklist is leeg",
     "every_place_used": "Elke locatie is in gebruik",
     "no_attachments": "Geen bijlagen",
     "no_days": "Geen dagen",
@@ -434,6 +451,17 @@
       "delete_desc": "Bijlage verwijderen? Dit kan niet ongedaan worden gemaakt.",
       "download_all": "Alles downloaden"
     },
+    "checklist": {
+      "add": "Nieuwe Checklist",
+      "delete": "Checklist verwijderen",
+      "rename": "Checklist hernoemen",
+      "groups": {
+        "week": "Tot einde van deze week",
+        "month": "Deze maand",
+        "year": "Dit jaar en later",
+        "undated": "Geen datum"
+      }
+    },
     "day": {
       "add": "Dag(en) toevoegen",
       "delete": "Dag verwijderen",
@@ -446,7 +474,8 @@
       "add_packing": "Pakitem toevoegen",
       "add_poi": "Interessepunt toevoegen",
       "delete": "Item verwijderen",
-      "edit": "Item bewerken"
+      "edit": "Item bewerken",
+      "notify_dt": "Melden om"
     },
     "link": {
       "delete": "Link verwijderen",
@@ -457,6 +486,11 @@
       "delete_desc": "{{name}} uit Trip verwijderen?",
       "invite": "Lid uitnodigen",
       "remove": "Lid verwijderen"
+    },
+    "packing_list": {
+      "add": "Nieuwe Paklijst",
+      "delete": "Paklijst verwijderen",
+      "rename": "Paklijst hernoemen"
     },
     "place": {
       "attached": "Gekoppelde locaties",
@@ -474,6 +508,7 @@
       "add": "Plan toevoegen",
       "create_using_place": "Plan aanmaken met deze locatie",
       "delete": "Plan verwijderen",
+      "duplicate": "Plan dupliceren",
       "edit": "Plan bewerken",
       "multiselect": "Meervoudige selectie",
       "multiselect_exit": "Meervoudige selectie afsluiten",
@@ -521,9 +556,13 @@
     "archival_notes": "Archiveringsnotities",
     "attachments_count": "Bijlagen ({{count}})",
     "center_location": "Centreer op mijn locatie",
+    "collapse_all_days": "Alle dagen inklappen",
+    "collapse_day": "Dag inklappen",
     "distance_from_previous": "{{distance}}km vanaf vorige",
     "distance_km": "{{distance}} km",
     "drag_resize": "Sleep om grootte aan te passen. Dubbelklik om te resetten.",
+    "expand_all_days": "Alle dagen uitklappen",
+    "expand_day": "Dag uitklappen",
     "off_show_bookings": "Boekingen verborgen",
     "off_show_day_notes": "Dagnotities verborgen",
     "off_show_text": "Locatie tonen",
@@ -676,6 +715,11 @@
       "places": {
         "description": "Locatieoverzicht opnemen",
         "title": "Locatieoverzicht"
+      },
+      "places_detailed": {
+        "description": "Toon volledige locatiedetails (adres, coördinaten, prijs, beschrijving, links...). Kan het aantal afgedrukte pagina's aanzienlijk verhogen.",
+        "gpx_attached": "GPX-track bijgevoegd",
+        "title": "Gedetailleerd locatieoverzicht"
       },
       "properties": {
         "description": "Velden om op te nemen",

@@ -71,6 +71,7 @@
       "date_range": "Intervalo de Data",
       "day": "Dia",
       "days": "Dias",
+      "default": "Padrão",
       "description": "Descrição",
       "distance": "Distância",
       "gpx": "GPX",
@@ -173,6 +174,9 @@
     "google_api_desc": "Conecte sua chave da API do Google para serviços de localização aprimorados",
     "manage_api_keys": "Gerenciar chaves da API",
     "delete_gapi_key": "Tem certeza que deseja excluir a chave da API do GMaps ?",
+    "apprise_webhook": "Webhook Apprise",
+    "apprise_webhook_desc": "Receba notificações de itens da checklist agendados via uma URL Apprise",
+    "delete_apprise_webhook": "Tem certeza que deseja excluir o webhook Apprise ?",
     "map_parameters": "Parâmetros do Mapa",
     "map_parameters_desc": "Configure o padrão de exibiçao do mapa e tile layers",
     "default_lat": "Latitude padrão",
@@ -191,6 +195,8 @@
     "encode_map_position_desc": "Salvar a posição do mapa e o local selecionado na URL para restaurar a mesma visualização ao recarregar",
     "dog_tag": "Etiqueta Dog-friendly",
     "dog_tag_desc": "Mostrar o indicador dog-friendly nos locais e no filtro rápido",
+    "link_titles": "Títulos dos links",
+    "link_titles_desc": "Buscar e exibir o título da página de cada link em vez da URL bruta",
     "always_display_visited": "Mostrar locais visitados",
     "always_display_visited_desc": "Sempre exibir locais visitados como pequenos pontos",
     "currency_desc": "Atualizar a moeda padrão",
@@ -223,6 +229,8 @@
     "registration": "Registro",
     "open_registration": "Registro aberto",
     "tile": "URL do tile",
+    "photon_url": "URL do Photon",
+    "photon_url_desc": "Endpoint padrão de geocodificação Photon",
     "allow_registration": "Permitir que usuários se registrem",
     "map_center": "Centro do mapa",
     "map_center_desc": "Latitude e longitude padrão",
@@ -263,11 +271,17 @@
     "title": "Viagens",
     "day": "dia",
     "days": "dias",
-    "invitations": {
-      "title": "Convites",
-      "on": "Em",
-      "invited_you": "convidou você para colaborar.",
-      "empty": "Nenhum convite pendente."
+    "notifications": {
+      "title": "Notificações",
+      "invitations": {
+        "on": "Em",
+        "invited_you": "convidou você para colaborar."
+      },
+      "checklist": {
+        "title": "Lembretes de checklist",
+        "triggered": "Disparados"
+      },
+      "empty": "Você está em dia."
     },
     "roles": {
       "owner": "Proprietário",
@@ -287,6 +301,7 @@
     "upload_new": "Enviar novo",
     "type": "Tipo",
     "label": "Etiqueta",
+    "markdown_hint": "Markdown suportado",
     "reference": "Referência",
     "notes": "Notas",
     "save": "Salvar",
@@ -363,6 +378,7 @@
     "password_updated": "Senha atualizada",
     "password_error": "Não foi possível atualizar a senha. Verifique se a senha atual está correta.",
     "error_deleting_gapi": "Erro ao excluir a chave da API do Google Maps",
+    "error_deleting_apprise_webhook": "Erro ao excluir o webhook Apprise",
     "unsupported_file": "Arquivo não suportado",
     "expected_csv": "Esperado um arquivo .csv",
     "querying_gmaps": "Consultando a API do Google Maps",
@@ -414,6 +430,7 @@
     "ready_to_paste": "Pronto para colar"
   },
   "empty_states": {
+    "checklist_empty": "Sua lista de verificação está vazia",
     "every_place_used": "Todos os locais estão em uso",
     "no_attachments": "Nenhum anexo",
     "no_days": "Nenhum dia",
@@ -434,6 +451,17 @@
       "delete_desc": "Excluir anexo? Esta ação não pode ser desfeita.",
       "download_all": "Baixar tudo"
     },
+    "checklist": {
+      "add": "Nova Checklist",
+      "delete": "Excluir Checklist",
+      "rename": "Renomear Checklist",
+      "groups": {
+        "week": "Até o fim desta semana",
+        "month": "Este mês",
+        "year": "Este ano e depois",
+        "undated": "Sem data"
+      }
+    },
     "day": {
       "add": "Adicionar dia(s)",
       "delete": "Excluir dia",
@@ -446,7 +474,8 @@
       "add_packing": "Adicionar bagagem",
       "add_poi": "Adicionar ponto de interesse",
       "delete": "Excluir item",
-      "edit": "Editar item"
+      "edit": "Editar item",
+      "notify_dt": "Notificar em"
     },
     "link": {
       "delete": "Excluir link",
@@ -457,6 +486,11 @@
       "delete_desc": "Remover {{name}} da viagem?",
       "invite": "Convidar membro",
       "remove": "Remover membro"
+    },
+    "packing_list": {
+      "add": "Nova Lista de Bagagem",
+      "delete": "Excluir Lista de Bagagem",
+      "rename": "Renomear Lista de Bagagem"
     },
     "place": {
       "attached": "Locais vinculados",
@@ -474,6 +508,7 @@
       "add": "Adicionar plano",
       "create_using_place": "Criar plano usando este local",
       "delete": "Excluir plano",
+      "duplicate": "Duplicar plano",
       "edit": "Editar plano",
       "multiselect": "Selecionar múltiplos planos",
       "multiselect_exit": "Sair da seleção múltipla",
@@ -521,9 +556,13 @@
     "archival_notes": "Notas de arquivamento",
     "attachments_count": "Anexos ({{count}})",
     "center_location": "Centralizar na minha localização",
+    "collapse_all_days": "Recolher todos os dias",
+    "collapse_day": "Recolher o dia",
     "distance_from_previous": "{{distance}} km do anterior",
     "distance_km": "{{distance}} km",
     "drag_resize": "Arraste para redimensionar. Clique duas vezes para redefinir.",
+    "expand_all_days": "Expandir todos os dias",
+    "expand_day": "Expandir o dia",
     "off_show_bookings": "Reservas ocultas",
     "off_show_day_notes": "Notas do dia ocultas",
     "off_show_text": "Mostrar local",
@@ -676,6 +715,11 @@
       "places": {
         "description": "Incluir recaptulação dos lugares",
         "title": "Recapitulação dos Lugares"
+      },
+      "places_detailed": {
+        "description": "Mostrar detalhes completos dos lugares (endereço, coordenadas, preço, descrição, links...). Pode aumentar significativamente o número de páginas impressas.",
+        "gpx_attached": "Trilha GPX anexada",
+        "title": "Recapitulação detalhada dos lugares"
       },
       "properties": {
         "description": "Propriedades a incluir",

@@ -1,4 +1,4 @@
-import { Place } from './poi';
+import { LinkItem, Place } from './poi';
 
 export interface TripBase {
   id: number;
@@ -81,7 +81,7 @@ export interface TripItem {
   gpx?: string;
   paid_by?: string;
   attachments?: TripAttachment[];
-  links?: string[];
+  links?: (string | LinkItem)[] | null;
 }
 
 export interface TripItemImage {
@@ -143,7 +143,7 @@ export interface FlattenedTripItem {
   gpx?: string;
   paid_by?: string;
   attachments?: TripAttachment[];
-  links?: string[];
+  links?: (string | LinkItem)[] | null;
 }
 
 export interface TripMember {
@@ -187,12 +187,36 @@ export interface ChecklistItem {
   id: number;
   text: string;
   checked?: boolean;
+  notify_dt?: string | null;
+}
+
+export interface PackingList {
+  id: number;
+  name: string;
+  items: PackingItem[];
+}
+
+export interface ChecklistList {
+  id: number;
+  name: string;
+  items: ChecklistItem[];
+}
+
+export interface NotificationChecklistItem {
+  id: number;
+  text: string;
+  notify_dt: string;
+  trip_id: number;
+  trip_name: string;
+  list_id?: number | null;
+  list_name?: string | null;
 }
 
 export interface PrintOptions {
   days: Set<number>;
   props: Set<string>;
   places: boolean;
+  placesDetailed?: boolean;
   notes: boolean;
   metadata: boolean;
   showBookings?: boolean;

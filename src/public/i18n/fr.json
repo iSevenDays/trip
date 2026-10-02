@@ -26,6 +26,7 @@
     "delete": "Supprimer",
     "edit": "Modifier",
     "label": "Libellé",
+    "markdown_hint": "Markdown pris en charge",
     "new_booking": "Nouvelle réservation",
     "notes": "Notes",
     "reference": "Référence",
@@ -121,6 +122,7 @@
       "date_range": "Période",
       "day": "Jour",
       "days": "Jours",
+      "default": "Par défaut",
       "description": "Description",
       "distance": "Distance",
       "gpx": "GPX",
@@ -195,6 +197,7 @@
     "mins": "{{count}} mins"
   },
   "empty_states": {
+    "checklist_empty": "Votre liste est vide",
     "every_place_used": "Toutes les places sont utilisées",
     "no_attachments": "Aucune pièce jointe",
     "no_days": "Aucun jour",
@@ -215,6 +218,17 @@
       "delete_desc": "Supprimer la pièce jointe ? Cette action est irréversible.",
       "download_all": "Tout télécharger"
     },
+    "checklist": {
+      "add": "Nouvelle Checklist",
+      "delete": "Supprimer la Checklist",
+      "rename": "Renommer la Checklist",
+      "groups": {
+        "week": "D'ici la fin de la semaine",
+        "month": "Ce mois-ci",
+        "year": "Cette année et au-delà",
+        "undated": "Sans date"
+      }
+    },
     "day": {
       "add": "Ajouter un(des) Jour(s)",
       "delete": "Supprimer le Jour",
@@ -227,7 +241,8 @@
       "add_packing": "Ajouter un Bagage",
       "add_poi": "Ajouter un Point d'Intérêt",
       "delete": "Supprimer l'Élément",
-      "edit": "Modifier l'Élément"
+      "edit": "Modifier l'Élément",
+      "notify_dt": "Notifier à"
     },
     "link": {
       "delete": "Supprimer le Lien",
@@ -238,6 +253,11 @@
       "delete_desc": "Supprimer {{name}} du Voyage ?",
       "invite": "Inviter un Membre",
       "remove": "Retirer le Membre"
+    },
+    "packing_list": {
+      "add": "Nouvelle Liste de Bagages",
+      "delete": "Supprimer la Liste de Bagages",
+      "rename": "Renommer la Liste de Bagages"
     },
     "place": {
       "attached": "Places attachées",
@@ -255,6 +275,7 @@
       "add": "Ajouter un Plan",
       "create_using_place": "Créer un Plan utilisant cette Place",
       "delete": "Supprimer le Plan",
+      "duplicate": "Dupliquer le Plan",
       "edit": "Modifier le Plan",
       "multiselect": "Sélection multiple de plans",
       "multiselect_exit": "Quitter la sélection multiple",
@@ -301,6 +322,7 @@
     "delete_plans_count": "Supprimer {{count}} plan(s) ? Cette action est irréversible.",
     "delete_user_failed": "Échec de la suppression de l'utilisateur",
     "duplicate_count": "Dupliquer {{count}} plan(s) ?",
+    "error_deleting_apprise_webhook": "Erreur lors de la suppression du webhook Apprise",
     "error_deleting_gapi": "Erreur lors de la suppression de la clé API GMaps",
     "error_disabling": "Erreur lors de la désactivation du TOTP",
     "error_totp": "Erreur lors de l'activation du TOTP",
@@ -487,6 +509,11 @@
         "description": "Inclure le récapitulatif des places",
         "title": "Récapitulatif des places"
       },
+      "places_detailed": {
+        "description": "Afficher tous les détails des places (adresse, coordonnées, prix, description, liens...). Peut considérablement augmenter le nombre de pages imprimées.",
+        "gpx_attached": "Trace GPX associée",
+        "title": "Récapitulatif détaillé des places"
+      },
       "properties": {
         "description": "Champs à inclure",
         "selected": "{0} propriétés sélectionnées",
@@ -551,6 +578,8 @@
     "always_display_visited_desc": "Toujours afficher les places visitées sous forme de petits points",
     "api_key": "Clé API TRIP",
     "api_key_desc": "Utilisez-la pour vous authentifier dans vos scripts",
+    "apprise_webhook": "Webhook Apprise",
+    "apprise_webhook_desc": "Recevez des notifications pour les éléments de checklist planifiés via une URL Apprise",
     "attachments_max_size": "Taille max des pièces jointes (Mo)",
     "authentication": "Authentification",
     "backup_entry_size": "Par fichier",
@@ -574,6 +603,7 @@
     "default_lng": "Longitude par défaut",
     "default_map_tile": "Calque de carte par défaut",
     "defaults": "Valeurs par défaut",
+    "delete_apprise_webhook": "Êtes-vous sûr de vouloir supprimer le webhook Apprise ?",
     "delete_gapi_key": "Êtes-vous sûr de vouloir supprimer la clé API GMaps ?",
     "delete_user": "Supprimer l'utilisateur",
     "delete_user_message": "Supprimer définitivement {{name}} et toutes ses données ? Cette action est irréversible.",
@@ -584,6 +614,8 @@
     "documentation_desc": "Apprenez à utiliser TRIP",
     "dog_tag": "Tag chien admis",
     "dog_tag_desc": "Afficher l'indicateur chien admis sur les places et le filtre rapide",
+    "link_titles": "Titres des liens",
+    "link_titles_desc": "Récupérer et afficher le titre de la page de chaque lien plutôt que son URL brute",
     "duplicate_dist": "Seuil de distance des doublons",
     "duplicate_dist_desc": "Contrôle à quel point les chaînes doivent correspondre. Des valeurs plus élevées acceptent plus de différences ; 0 pour désactiver",
     "encode_map_position": "Mémoriser position et place",
@@ -626,6 +658,8 @@
     "oidc_discovery_url": "Discovery URL",
     "oidc_redirect_uri": "Redirect URI",
     "open_registration": "Inscription ouverte",
+    "photon_url": "URL Photon",
+    "photon_url_desc": "Point de terminaison Photon par défaut",
     "preferences": "Préférences",
     "processing": "Traitement en cours...",
     "provider": "Fournisseur de carte",
@@ -690,11 +724,17 @@
   "trips": {
     "day": "jour",
     "days": "jours",
-    "invitations": {
-      "empty": "Aucune invitation en attente.",
-      "invited_you": "vous a invité à collaborer.",
-      "on": "Sur",
-      "title": "Invitations"
+    "notifications": {
+      "checklist": {
+        "title": "Rappels de checklist",
+        "triggered": "Déclenchés"
+      },
+      "empty": "Vous êtes à jour.",
+      "invitations": {
+        "invited_you": "vous a invité à collaborer.",
+        "on": "Sur"
+      },
+      "title": "Notifications"
     },
     "roles": {
       "invited": "Invité",
@@ -707,9 +747,13 @@
     "archival_notes": "Notes d'archivage",
     "attachments_count": "Pièces jointes ({{count}})",
     "center_location": "Centrer sur ma position",
+    "collapse_all_days": "Réduire tous les jours",
+    "collapse_day": "Réduire le jour",
     "distance_from_previous": "À {{distance}} km du précédent",
     "distance_km": "{{distance}} km",
     "drag_resize": "Faites glisser pour redimensionner. Double-cliquez pour réinitialiser.",
+    "expand_all_days": "Développer tous les jours",
+    "expand_day": "Développer le jour",
     "off_show_bookings": "Réservations masquées",
     "off_show_day_notes": "Notes du jour masquées",
     "off_show_text": "Afficher la Place",

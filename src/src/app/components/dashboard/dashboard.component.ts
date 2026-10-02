@@ -82,7 +82,7 @@ import { PlaceListItemComponent } from '../../shared/place-list-item/place-list-
 import { PopoverModule } from 'primeng/popover';
 import { RouteManagerService } from '../../services/route-manager.service';
 import { AdminUser, APP_CONFIG_MB_FIELDS, AppConfig, MagicLink } from '../../types/admin';
-import { InputNumberModule } from 'primeng/inputnumber';
+import { NumberInputDirective } from '../../shared/number-input.directive';
 import { ClipboardModule } from '@angular/cdk/clipboard';
 import { TranslocoDirective, TranslocoService } from '@jsverse/transloco';
 
@@ -123,7 +123,7 @@ export interface MarkerOptions extends L.MarkerOptions {
     MenuModule,
     PlaceListItemComponent,
     PopoverModule,
-    InputNumberModule,
+    NumberInputDirective,
     ClipboardModule,
     TranslocoDirective,
   ],
@@ -178,6 +178,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   isVisitedMode = signal(false);
   isMapPositionMode = signal(false);
   isDogTagMode = signal(true);
+  isFetchLinkTitlesMode = signal(false);
   filter_display_visited = signal(false);
   filter_display_favorite_only = signal(false);
   filter_display_restroom = signal(false);
@@ -188,6 +189,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   providers: { disp: string; value: string }[] = [
     { disp: 'OpenStreetMap API', value: 'osm' },
     { disp: 'Google API', value: 'google' },
+    { disp: 'Photon API', value: 'photon' },
   ];
   geocodeFilterInput = new FormControl('');
   searchInput = new FormControl('');
@@ -322,6 +324,12 @@ export class DashboardComponent implements OnInit, AfterViewInit {
           },
         },
         {
+          label: 'Italiano',
+          command: () => {
+            this.updateLanguage('it');
+          },
+        },
+        {
           label: 'Nederlands',
           command: () => {
             this.updateLanguage('nl');
@@ -370,6 +378,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
       do_not_display: [],
       tile_layer: ['', Validators.required],
       _google_apikey: [null, { validators: [Validators.pattern('AIza[0-9A-Za-z\\-_]{35}')] }],
+      _apprise_webhook_url: [null],
       map_provider: [],
       duplicate_dist: [null, { validators: [Validators.min(0)] }],
     });
@@ -390,6 +399,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
       OIDC_CLIENT_SECRET: [''],
       OIDC_REDIRECT_URI: [''],
       DEFAULT_TILE: ['', [Validators.required]],
+      PHOTON_URL: ['', [Validators.required]],
       DEFAULT_CURRENCY: ['€', [Validators.required]],
       DEFAULT_MAP_LAT: [0, [Validators.required, Validators.pattern('-?(90(\\.0+)?|[1-8]?\\d(\\.\\d+)?)')]],
       DEFAULT_MAP_LNG: [
@@ -470,6 +480,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
           this.isVisitedMode.set(!!settings.mode_display_visited);
           this.isMapPositionMode.set(!!settings.mode_map_position);
           this.isDogTagMode.set(settings.show_dog_tag !== false);
+          this.isFetchLinkTitlesMode.set(!!settings.fetch_link_titles);
           this.utilsService.toggleDarkMode(!!settings.mode_dark);
 
           this.categories.set(this.sortCategoriesArray(categories));
@@ -494,12 +505,22 @@ export class DashboardComponent implements OnInit, AfterViewInit {
         },
       },
       {
+        text: this.translocoService.translate('clipboard.copy_coords'),
+        callback: (e: any) => {
+          const { lat, lng } = e.latlng;
+          navigator.clipboard.writeText(`${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}`);
+        },
+      },
+    ];
+
+    if (settings.map_provider === 'google' && settings.google_apikey) {
+      contentMenuItems.push({
         text: this.translocoService.translate('dashboard.find_nearby'),
         callback: (e: any) => {
           this.googleNearbyPlaces(e);
         },
-      },
-    ];
+      });
+    }
     this.map = createMap(isTouch ? [] : contentMenuItems, settings.tile_layer);
     if (isTouch) this.map.on('contextmenu', (e: any) => this.addPlaceModal(e));
 
@@ -801,7 +822,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     if (!selected) return;
 
     const previousLinks = selected.links;
-    const newLinks = links.length ? links : undefined;
+    const newLinks = links.length ? links : null;
     this.apiService
       .putPlace(selected.id, { links: newLinks })
       .pipe(take(1))
@@ -1033,6 +1054,7 @@ export class DashboardComponent implements OnInit, AfterViewInit {
           this.isVisitedMode.set(!!resp.settings.mode_display_visited);
           this.isMapPositionMode.set(!!resp.settings.mode_map_position);
           this.isDogTagMode.set(resp.settings.show_dog_tag !== false);
+          this.isFetchLinkTitlesMode.set(!!resp.settings.fetch_link_titles);
           this.utilsService.toggleDarkMode(!!resp.settings.mode_dark);
           this.resetFilters();
 
@@ -1102,9 +1124,13 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     const data = put || { ...this.settingsForm.value };
     if (!put) {
       delete data['_google_apikey'];
+      delete data['_apprise_webhook_url'];
       if (!this.settingsForm.get('duplicate_dist')?.value) data['duplicate_dist'] = 0;
       if (!this.settings()?.google_apikey && this.settingsForm.get('_google_apikey')?.value) {
         data['google_apikey'] = this.settingsForm.get('_google_apikey')?.value;
+      }
+      if (!this.settings()?.apprise_webhook_url && this.settingsForm.get('_apprise_webhook_url')?.value) {
+        data['apprise_webhook_url'] = this.settingsForm.get('_apprise_webhook_url')?.value;
       }
     }
 
@@ -1113,7 +1139,10 @@ export class DashboardComponent implements OnInit, AfterViewInit {
       .pipe(take(1))
       .subscribe({
         next: (settings) => {
-          const refreshMap = this.settings()?.tile_layer !== settings.tile_layer;
+          const refreshMap =
+            this.settings()?.tile_layer !== settings.tile_layer ||
+            this.settings()?.map_provider !== settings.map_provider ||
+            !!this.settings()?.google_apikey !== !!settings.google_apikey;
           this.settings.set(settings);
 
           if (refreshMap) {
@@ -1337,19 +1366,6 @@ export class DashboardComponent implements OnInit, AfterViewInit {
 
     let data: Partial<Settings> = { mode_dark: !settings.mode_dark };
 
-    // If user uses default tile, we also update tile_layer to dark/voyager
-    if (
-      !settings.mode_dark &&
-      settings.tile_layer === 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-    ) {
-      data.tile_layer = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-    } else if (
-      settings.mode_dark &&
-      settings.tile_layer === 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    ) {
-      data.tile_layer = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-    }
-
     this.apiService
       .putSettings(data)
       .pipe(take(1))
@@ -1421,6 +1437,20 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     if (!this.isDogTagMode()) this.filter_dog_only.set(false);
     this.apiService
       .putSettings({ show_dog_tag: this.isDogTagMode() })
+      .pipe(take(1))
+      .subscribe({
+        next: () =>
+          this.utilsService.toast(
+            'success',
+            this.translocoService.translate('common.status.success'),
+            this.translocoService.translate('messages.preferences_saved'),
+          ),
+      });
+  }
+
+  toggleFetchLinkTitles() {
+    this.apiService
+      .putSettings({ fetch_link_titles: this.isFetchLinkTitlesMode() })
       .pipe(take(1))
       .subscribe({
         next: () =>
@@ -1643,13 +1673,38 @@ export class DashboardComponent implements OnInit, AfterViewInit {
     });
   }
 
-  /**
-   * Quote-aware CSV record splitter. A naive `text.split('\n')` treats every
-   * literal newline as a row boundary, which corrupts rows whose quoted
-   * fields (e.g. multi-line notes) contain embedded newlines. This does a
-   * single pass, toggling an "inside quotes" flag on `"` and only treating
-   * `\n` / `\r\n` as a record boundary while outside quotes.
-   */
+  deleteAppriseWebhook() {
+    const modal = this.dialogService.open(YesNoModalComponent, {
+      header: this.translocoService.translate('common.actions.confirm'),
+      modal: true,
+      closable: true,
+      dismissableMask: true,
+      draggable: false,
+      resizable: false,
+      breakpoints: {
+        '640px': '90vw',
+      },
+      data: this.translocoService.translate('settings.delete_apprise_webhook'),
+    })!;
+
+    modal.onClose.subscribe({
+      next: (bool: boolean) => {
+        if (!bool) return;
+
+        this.apiService.putSettings({ apprise_webhook_url: null }).subscribe({
+          next: () =>
+            this.settings.update((settings) => (settings ? { ...settings, apprise_webhook_url: false } : settings)),
+          error: () =>
+            this.utilsService.toast(
+              'error',
+              this.translocoService.translate('common.status.error'),
+              this.translocoService.translate('messages.error_deleting_apprise_webhook'),
+            ),
+        });
+      },
+    });
+  }
+
   private splitCsvRecords(text: string): string[] {
     const records: string[] = [];
     let current = '';
@@ -1950,15 +2005,6 @@ export class DashboardComponent implements OnInit, AfterViewInit {
   geocodeFilter() {
     const value = this.geocodeFilterInput.value;
     if (!value) return;
-
-    if (!this.settings()?.google_apikey) {
-      this.utilsService.toast(
-        'error',
-        this.translocoService.translate('messages.missing_key'),
-        this.translocoService.translate('messages.gapi_not_configured'),
-      );
-      return;
-    }
 
     this.apiService
       .completionGeocodeBoundaries(value)

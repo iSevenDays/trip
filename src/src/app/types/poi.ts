@@ -11,6 +11,11 @@ export interface PlaceImage {
   url: string;
 }
 
+export interface LinkItem {
+  url: string;
+  title?: string | null;
+}
+
 export interface Place {
   id: number;
   name: string;
@@ -32,7 +37,7 @@ export interface Place {
   visited?: boolean;
   favorite?: boolean;
   restroom?: boolean;
-  links?: string[];
+  links?: (string | LinkItem)[] | null;
   trip_count?: number;
 }
 
